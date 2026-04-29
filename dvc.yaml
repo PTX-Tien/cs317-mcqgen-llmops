@@ -1,19 +1,29 @@
 stages:
+  transcript_chunking:
+    cmd: python chunk_transcripts.py
+    deps:
+      - chunk_transcripts.py
+      - common.py
+      - input/transcribe_data/
+      - input/videos1.txt
+    outs:
+      - data/processed/transcript_chunks_with_timestamps.jsonl
+
   indexing:
     cmd: python indexing.py
     deps:
       - indexing.py
-      - input/slide/
-      - input/video_transcript/
       - common.py
+      - input/slide/
+      - data/processed/transcript_chunks_with_timestamps.jsonl
     outs:
       - data/processed/concept_chunks.jsonl
       - data/indexes/
 
   benchmark_rag:
-    cmd: python advanced_retrieval.py adaptive > data/benchmarks/rag_benchmark.log 2>&1
+    cmd: mkdir -p data/benchmarks && python advanced_retrieval.py adaptive > data/benchmarks/rag_benchmark.log 2>&1
     deps:
       - advanced_retrieval.py
       - data/indexes/
     outs:
-      - data/benchmarks/rag_benchmark.log
+      - data/benchmarks/

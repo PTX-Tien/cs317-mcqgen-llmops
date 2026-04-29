@@ -1,0 +1,76 @@
+schema: '2.0'
+stages:
+  indexing:
+    cmd: python indexing.py
+    deps:
+    - path: common.py
+      hash: md5
+      md5: 0935d60020d5b21cc575216d7bd1f287
+      size: 50481
+    - path: data/processed/transcript_chunks_with_timestamps.jsonl
+      hash: md5
+      md5: 0480a16d544a038d100380f11f935f89
+      size: 1510428
+    - path: indexing.py
+      hash: md5
+      md5: 0730f136d67e44aa8939e619d8554217
+      size: 13265
+    - path: input/slide/
+      hash: md5
+      md5: ce35a5bcebf2e0f926f410466bb8f2a4.dir
+      size: 17754739
+      nfiles: 11
+    outs:
+    - path: data/indexes/
+      hash: md5
+      md5: 35405c6b974b1b693ea322b4288020c1.dir
+      size: 23835456
+      nfiles: 6
+    - path: data/processed/concept_chunks.jsonl
+      hash: md5
+      md5: cfd2ded3caff29f4136d5a26dd4c49cc
+      size: 1732047
+  benchmark_rag:
+    cmd: mkdir -p data/benchmarks && python advanced_retrieval.py adaptive > 
+      data/benchmarks/rag_benchmark.log 2>&1
+    deps:
+    - path: advanced_retrieval.py
+      hash: md5
+      md5: 18e113c03da4300cdf326ca990a3f151
+      size: 12287
+    - path: data/indexes/
+      hash: md5
+      md5: cbd4fa2e6e4e501de2a3715d2e793a45.dir
+      size: 23835456
+      nfiles: 6
+    outs:
+    - path: data/benchmarks/
+      hash: md5
+      md5: d82ceea1847b1b03dcc009f09f1af1ff.dir
+      size: 2525
+      nfiles: 1
+  transcript_chunking:
+    cmd: python chunk_transcripts.py
+    deps:
+    - path: chunk_transcripts.py
+      hash: md5
+      md5: 7398c48c503480af265a44b062a467e8
+      size: 16270
+    - path: common.py
+      hash: md5
+      md5: 0935d60020d5b21cc575216d7bd1f287
+      size: 50481
+    - path: input/transcribe_data/
+      hash: md5
+      md5: ea258148e030a031b05fdff0e32d3258.dir
+      size: 27638753
+      nfiles: 79
+    - path: input/videos1.txt
+      hash: md5
+      md5: b25f95ee66d007f6845c898c95051627
+      size: 5960
+    outs:
+    - path: data/processed/transcript_chunks_with_timestamps.jsonl
+      hash: md5
+      md5: 0480a16d544a038d100380f11f935f89
+      size: 1510428

@@ -1,0 +1,79 @@
+1|https://youtu.be/eY--6WX1hAQ, None
+1|https://youtu.be/_BGaEHA1U6s, None
+1|https://youtu.be/1a7AxTRLrlQ, None
+1|https://youtu.be/TqORZBSitQU, None
+1|https://youtu.be/xaUMWpT1mUI, None
+1|https://youtu.be/CkX4yE2fN1w, None
+1|https://youtu.be/0ycFt1_Ph58, None
+1|https://youtu.be/Khz_kSZ-91M, None
+2|https://youtu.be/oXy25Wt6rdE, slide: CS116-Bai02-Popular Libs.pdf, trang 1
+2|https://youtu.be/Apb2REK9UqA, slide: CS116-Bai02-Popular Libs.pdf, trang 4
+2|https://youtu.be/g8uw5jp2pi0, slide: CS116-Bai02-Popular Libs.pdf, trang 6
+2|https://youtu.be/B1LCA6nxyCs, None, Coding Tutorials
+2|https://youtu.be/0ozeUUS9DzQ, None, Coding Tutorials
+2|https://youtu.be/pBrGDARCTE8, None, Coding Tutorials
+2|https://youtu.be/dDjSutHDckw, None, Coding Tutorials
+3|https://youtu.be/kuDPIIsl2_8, slide: CS116-Bai03-Pipeline & EDA.pdf, trang 1
+3|https://youtu.be/lG95Eg3Hv7c, slide: CS116-Bai03-Pipeline & EDA.pdf, trang 5
+3|https://youtu.be/7bb6IFBgtfw, slide: CS116-Bai03-Pipeline & EDA.pdf, trang 14
+3|https://youtu.be/oZa-m3pb1SQ, slide: CS116-Bai03-Pipeline & EDA.pdf, trang 22
+4|https://youtu.be/lIePeARVnH0, slide: CS116-Bai04-Data preprocessing.pdf, trang 1
+4|https://youtu.be/KgNMHIB8Aoc, slide: CS116-Bai04-Data preprocessing.pdf, trang 7
+4|https://youtu.be/GA7IpvwIQTQ, slide: CS116-Bai04-Data preprocessing.pdf, trang 13
+4|https://youtu.be/pIuM6XnJjD4, slide: CS116-Bai04-Data preprocessing.pdf, trang 22
+4|https://youtu.be/hPxWhkAgyYw, slide: CS116-Bai04-Data preprocessing.pdf, trang 34
+4|https://youtu.be/f_rMY30-bRQ, slide: CS116-Bai04-Data preprocessing.pdf, trang 42
+4|https://youtu.be/jEWheFdYryo, None, Coding Tutorials 
+4|https://youtu.be/dckcCVv4tUI, None, Coding Tutorials
+5|https://youtu.be/GanRdKpk31I, slide: CS116-Bai05-Eval model.pdf, trang 1
+5|https://youtu.be/HJleMrK28qc, slide: CS116-Bai05-Eval model.pdf, trang 7
+5|https://youtu.be/QUIZn8fpTpI, slide: CS116-Bai05-Eval model.pdf, trang 11
+5|https://youtu.be/tEV-Ie0kCsc, slide: CS116-Bai05-Eval model.pdf, trang 14
+5|https://youtu.be/ZO3SVFww3ZQ, slide: CS116-Bai05-Eval model.pdf, trang 1
+6|https://www.youtube.com/watch?v=ANx3DPwHEGI, slide: CS116-Bai06-Unsupervised learning.pdf, trang 1
+6|https://youtu.be/KBu_8C3KULg, slide: CS116-Bai06-Unsupervised learning.pdf, trang 6
+6|https://youtu.be/NJ0rjEK0L78, slide: CS116-Bai06-Unsupervised learning.pdf, trang 11
+6|https://youtu.be/5Hr7WDN8QKI, slide: CS116-Bai06-Unsupervised learning.pdf, trang 14
+6|https://youtu.be/Oc2dKYMWUx0, slide: CS116-Bai06-Unsupervised learning.pdf, trang 21
+7|https://youtu.be/kJnJszwQlz8, slide: CS116-Bai07a-Supervised learning-Regression.pdf, trang 1
+7|https://youtu.be/A6vU3I4CK6U, slide: CS116-Bai07a-Supervised learning-Regression.pdf, trang 4
+7|https://youtu.be/73-FbhDr_Po, slide: CS116-Bai07a-Supervised learning-Regression.pdf, trang 8
+7|https://youtu.be/CYj_-IiXSIg, slide: CS116-Bai07a-Supervised learning-Regression.pdf, trang 14
+7|https://youtu.be/B5cpY9SY7CY, slide: CS116-Bai07a-Supervised learning-Regression.pdf, trang 18
+8|https://youtu.be/UCmTraNX7QA, slide: CS116-Bai07b-Supervised learning-Classification.pdf, trang 2
+8|https://youtu.be/zTEi9Q92mdg, slide: CS116-Bai07b-Supervised learning-Classification.pdf, trang 6
+8|https://youtu.be/gSbV7SypJa4, slide: CS116-Bai07b-Supervised learning-Classification.pdf, trang 13
+8|https://www.youtube.com/watch?v=sDmzaaAv3Pc, None, Coding Tutorials
+8|https://www.youtube.com/watch?v=Gnb5JI9ynU4, None, Coding Tutorials
+8|https://www.youtube.com/watch?v=X--mLc-PW-o, None, Coding Tutorials
+8|https://www.youtube.com/watch?v=7w5EiDHtIII, None, Coding Tutorials
+8|https://www.youtube.com/watch?v=ccgq3dzD0A4, None, Coding Tutorials
+9|https://youtu.be/xD-o-30NeBA, slide: CS116-Bai08-Deep learning với CNN.pdf, trang 1
+9|https://youtu.be/uhwita1uhlA, slide: CS116-Bai08-Deep learning với CNN.pdf, trang 10
+9|https://youtu.be/CN9KChN5skw, slide: CS116-Bai08-Deep learning với CNN.pdf, trang 24
+10|https://youtu.be/YyTbZa-WmHY, None, Coding Tutorials
+10|https://youtu.be/usMgo0mKV3A, None, Coding Tutorials
+10|https://youtu.be/MrCfY40azyU, None, Coding Tutorials
+10|https://youtu.be/P_og-OmyL44, None, Coding Tutorials
+11|https://youtu.be/oyZngWDeRb4, slide: CS116-Bai09-Parameter tuning.pdf, trang 1
+11|https://youtu.be/zk9bnirI-cs, slide: CS116-Bai09-Parameter tuning.pdf, trang 6
+11|https://youtu.be/piHxNCYpMLk, slide: CS116-Bai09-Parameter tuning.pdf, trang 9
+11|https://youtu.be/Lt0azzH_htk, slide: CS116-Bai09-Parameter tuning.pdf, trang 12
+11|https://www.youtube.com/watch?v=NW8fWHdiAME, None, Coding Tutorials
+12|https://www.youtube.com/watch?v=yPGYgh-J3uY, slide: CS116-Bai10-Ensemble model.pdf, trang 1
+12|https://youtu.be/7yfomH4cNXI, slide: CS116-Bai10-Ensemble model.pdf, trang 7
+12|https://youtu.be/1XtVmBf5vGA, slide: CS116-Bai10-Ensemble model.pdf, trang 11
+12|https://youtu.be/gnpctQm2TkI, slide: CS116-Bai10-Ensemble model.pdf, trang 14
+12|https://youtu.be/K9YoXQq0TjI, slide: CS116-Bai10-Ensemble model.pdf, trang 17
+13|https://youtu.be/Lqxy5wcEi9I, slide: CS116-Bai11-Model Deployment.pdf, trang 1
+13|https://youtu.be/kylIGUKrEsA, slide: CS116-Bai11-Model Deployment.pdf, trang 5
+13|https://youtu.be/WSGSbmgzO3M, slide: CS116-Bai11-Model Deployment.pdf, trang 7
+13|https://youtu.be/zpcI-PT_MjE, slide: CS116-Bai11-Model Deployment.pdf, trang 12
+13|https://youtu.be/aevGbPj9y6k, slide: CS116-Bai11-Model Deployment.pdf, trang 12
+13|https://youtu.be/fHQuBYhg_pA, slide: CS116-Bai11-Model Deployment.pdf, trang 22
+13|https://youtu.be/pWrRBwgKqPQ, None, Coding Tutorials
+13|https://youtu.be/pB7Y3ytmjZ0, None, Coding Tutorials
+13|https://youtu.be/2AfXTKxyUd8, slide: CS116-Bai11-Model Deployment.pdf, trang 29
+13|https://youtu.be/WWRZF5x7Hqo, slide: CS116-Bai11-Model Deployment.pdf, trang 33
+13|https://youtu.be/dJaFUvTRrTw, slide: CS116-Bai11-Model Deployment.pdf, trang 40
+13|https://youtu.be/CHywALVycG4, slide: CS116-Bai11-Model Deployment.pdf, trang 42
