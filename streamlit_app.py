@@ -160,12 +160,50 @@ if generate_btn and topics:
             if mcq.get("style_alignment_note"):
                 st.caption(f"📌 {mcq['style_alignment_note']}")
 
-    # Export JSON
+    # Export buttons
     st.divider()
+    col1, col2, col3 = st.columns(3)
+
+    # JSON
     json_str = json.dumps(mcqs, ensure_ascii=False, indent=2)
-    st.download_button(
-        "⬇️ Download JSON",
+    col1.download_button(
+        "⬇️ JSON",
         data=json_str,
         file_name=f"{output_name}_mcqs.json",
-        mime="application/json"
+        mime="application/json",
+        use_container_width=True,
     )
+
+    # PDF đề thi (không có đáp án)
+    try:
+        pdf_resp = requests.get(
+            f"{API_URL}/export/pdf/{task_id}?include_answers=false",
+            timeout=15
+        )
+        if pdf_resp.status_code == 200:
+            col2.download_button(
+                "📄 PDF Đề thi",
+                data=pdf_resp.content,
+                file_name=f"{output_name}_exam.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+    except Exception as e:
+        col2.error(f"PDF error: {e}")
+
+    # PDF có đáp án
+    try:
+        pdf_ans_resp = requests.get(
+            f"{API_URL}/export/pdf/{task_id}?include_answers=true",
+            timeout=15
+        )
+        if pdf_ans_resp.status_code == 200:
+            col3.download_button(
+                "🔑 PDF Đáp án",
+                data=pdf_ans_resp.content,
+                file_name=f"{output_name}_answers.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+    except Exception as e:
+        col3.error(f"PDF error: {e}")

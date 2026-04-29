@@ -1,0 +1,48 @@
+name: MCQGen CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install deps
+        run: pip install pyyaml chromadb rank-bm25 reportlab
+
+      - name: Test imports
+        run: |
+          python -c "from api.pdf_exporter import export_exam_pdf; print('pdf_exporter OK')"
+          python -c "import yaml; yaml.safe_load(open('dvc.yaml')); print('dvc.yaml OK')"
+
+      - name: Test PDF generation
+        run: |
+          python -c "
+          from api.pdf_exporter import export_exam_pdf
+          mcqs = [{
+            'question_text': 'Test câu hỏi? [Một đáp án đúng]',
+            'question_type': 'single_correct',
+            'options': {'A':'Đúng','B':'Sai','C':'Không','D':'Có'},
+            'correct_answers': ['A'],
+            'topic': 'Test',
+            'difficulty_label': 'G2'
+          }]
+          pdf = export_exam_pdf(mcqs, 'TEST')
+          assert len(pdf) > 1000, 'PDF too small'
+          print(f'PDF OK: {len(pdf)} bytes')
+          "
+
+      - name: Validate DVC pipeline
+        run: |
+          pip install dvc
+          dvc dag
