@@ -68,6 +68,16 @@ with st.sidebar:
     total_q = sum(t["n"] for t in topics)
     st.info(f"Tổng: **{total_q} câu hỏi** từ {len(topics)} topic")
 
+    # Queue status
+    try:
+        qs = requests.get(f"{API_URL}/queue/status", timeout=3).json()
+        if qs["status"] == "busy":
+            st.warning(f"⏳ Queue: {qs['pending_jobs']} job đang chờ (~{qs['estimated_wait_min']} phút)")
+        else:
+            st.success("✅ Queue: Sẵn sàng")
+    except Exception:
+        pass
+
     generate_btn = st.button(
         "🚀 Sinh câu hỏi", type="primary",
         disabled=(len(topics) == 0)
@@ -86,7 +96,13 @@ if generate_btn and topics:
         )
         data = resp.json()
         task_id = data["task_id"]
+        pos  = data.get("queue_position", 1)
+        wait = data.get("estimated_wait_min", 0)
         st.success(f"✅ Job submitted | Task ID: `{task_id}`")
+        if pos > 1:
+            st.info(f"📋 Vị trí trong queue: **#{pos}** | Ước tính chờ: **~{wait} phút**")
+        else:
+            st.info("🚀 Đang xử lý ngay — không có job nào đang chờ")
     except Exception as e:
         st.error(f"❌ Không thể kết nối API: {e}")
         st.stop()

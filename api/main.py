@@ -32,6 +32,19 @@ class GenerateRequest(BaseModel):
     output_name: str = "exam"
 
 # ── Endpoints ──────────────────────────────────────────────────────
+def get_queue_depth() -> int:
+    """Đếm số tasks đang pending trong Celery queue."""
+    try:
+        inspector = celery_app.control.inspect(timeout=1.0)
+        reserved = inspector.reserved() or {}
+        active   = inspector.active()   or {}
+        n_reserved = sum(len(v) for v in reserved.values())
+        n_active   = sum(len(v) for v in active.values())
+        return n_reserved + n_active
+    except Exception:
+        return 0
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "MCQGen API"}
@@ -40,11 +53,18 @@ def health():
 def generate(req: GenerateRequest):
     """Submit MCQ generation job → trả về task_id ngay."""
     topics = [t.model_dump() for t in req.topics]
+    queue_depth = get_queue_depth()
     task = run_mcq_pipeline.delay(topics, req.output_name)
+    n_questions = sum(t["n"] for t in topics)
+    est_wait = queue_depth * 7  # ~7 phút mỗi job
+
     return {
-        "task_id": task.id,
-        "status": "queued",
-        "message": f"Generating {sum(t['n'] for t in topics)} MCQs"
+        "task_id":           task.id,
+        "status":            "queued",
+        "queue_position":    queue_depth + 1,
+        "estimated_wait_min": est_wait,
+        "n_questions":       n_questions,
+        "message":           f"Generating {n_questions} MCQs — position #{queue_depth + 1} in queue"
     }
 
 @app.get("/status/{task_id}")
@@ -101,6 +121,18 @@ def root():
 
 from fastapi.responses import Response
 from api.pdf_exporter import export_exam_pdf
+from celery.app.control import Inspect
+
+@app.get("/queue/status")
+def queue_status():
+    """Xem trạng thái queue hiện tại."""
+    depth = get_queue_depth()
+    return {
+        "pending_jobs":     depth,
+        "estimated_wait_min": depth * 7,
+        "status":           "busy" if depth > 0 else "idle"
+    }
+
 
 @app.get("/export/pdf/{task_id}")
 def export_pdf(task_id: str, include_answers: bool = False):
