@@ -1,0 +1,6 @@
+outs:
+- md5: 835ebac7a6315ffed40b078c3b0384d0.dir
+  size: 5339956
+  nfiles: 73
+  hash: md5
+  path: video_transcript

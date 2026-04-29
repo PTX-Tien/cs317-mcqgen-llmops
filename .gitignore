@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Logs
+*.log
+
+# Data lớn — track bằng DVC thay vì git
+data/indexes/
+data/processed/
+data/cleaned_transcript/
+data/concept_chunks.jsonl
+models/
+input/slide/
+input/video_transcript/
+
+# Redis
+redis_data/
+
+# Output experiments
+output/
+
+# Temp files
+fix_*.py
+patch_*.py
+swap_*.py
+test_output.json
+*.tmp
+
+# vLLM
+vllm_server.log
