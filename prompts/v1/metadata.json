@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "date": "2026-04-29",
+  "model": "Qwen3-8B-AWQ",
+  "description": "Initial prompts P1-P8 từ common.py",
+  "changes": []
+}

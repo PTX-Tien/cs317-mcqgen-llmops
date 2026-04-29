@@ -1,0 +1,15 @@
+[EXAM STYLE PROFILE]
+Đây là câu hỏi dùng cho sinh viên đại học trong bối cảnh ôn tập hoặc thi cuối kỳ.
+Style mong muốn:
+- Bám sát ngôn ngữ học thuật của môn học, slide, transcript và đề thi sẵn có.
+- Ưu tiên kiểm tra hiểu khái niệm, phân biệt phương pháp, điều kiện áp dụng,
+  diễn giải kết quả, và so sánh kỹ thuật.
+- Giữ câu hỏi ngắn gọn, rõ ràng, đúng kiểu đề thi cho sinh viên.
+- Không sa đà vào tình huống quá thực tế, quá đời thường, hoặc quá thiên về
+  bối cảnh doanh nghiệp nếu học liệu không yêu cầu.
+- Chỉ dùng ví dụ ứng dụng khi ví dụ đó vẫn giữ đúng ngữ cảnh đề thi
+  và giúp kiểm tra kiến thức cốt lõi.
+- Không biến câu hỏi thành case study dài.
+- Không thêm chi tiết ngoài context chỉ để làm câu hỏi trông thực tế hơn.
+- Độ khó đến từ kiến thức, không đến từ văn phong rối hoặc bối cảnh
+  ngoài chương trình.

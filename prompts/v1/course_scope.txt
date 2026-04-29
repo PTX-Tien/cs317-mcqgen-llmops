@@ -1,0 +1,1 @@
+Python (lập trình cơ bản và nâng cao), Machine Learning (hồi quy, phân loại, clustering, đánh giá mô hình), Deep Learning (neural networks, CNN, RNN, tối ưu hóa), và kiến thức về quy trình xây dựng một hệ thống máy học hoàn chỉnh (thu thập dữ liệu, tiền xử lý, feature engineering, huấn luyện, đánh giá, triển khai).
