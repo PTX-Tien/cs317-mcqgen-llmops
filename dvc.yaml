@@ -1,0 +1,19 @@
+stages:
+  indexing:
+    cmd: python indexing.py
+    deps:
+      - indexing.py
+      - input/slide/
+      - input/video_transcript/
+      - common.py
+    outs:
+      - data/processed/concept_chunks.jsonl
+      - data/indexes/
+
+  benchmark_rag:
+    cmd: python advanced_retrieval.py adaptive > data/benchmarks/rag_benchmark.log 2>&1
+    deps:
+      - advanced_retrieval.py
+      - data/indexes/
+    outs:
+      - data/benchmarks/rag_benchmark.log
