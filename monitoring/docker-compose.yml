@@ -1,0 +1,31 @@
+version: "3.8"
+services:
+  langfuse-db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse123
+    volumes:
+      - langfuse_db:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    restart: always
+    depends_on:
+      - langfuse-db
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse123@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: mcqgen-secret-key-2026
+      SALT: mcqgen-salt-2026
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+
+volumes:
+  langfuse_db:
