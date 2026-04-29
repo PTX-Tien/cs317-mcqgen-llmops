@@ -121,6 +121,13 @@ log "   PID=$! | log=$LOG_DIR/fastapi.log"
 log "[5/5] Waiting for vLLM to finish loading model..."
 wait_until "vLLM" "curl -s http://localhost:8000/health"
 
+# ── STEP 6: Prometheus + Grafana (Docker) ────────────────────────
+log "[6/6] Prometheus + Grafana..."
+cd monitoring 2>/dev/null || true
+docker compose up prometheus grafana -d 2>/dev/null || true
+cd ..
+sleep 5
+
 # ── Final health check ────────────────────────────────────────────
 sleep 3
 IP=$(hostname -I | awk '{print $1}')
@@ -141,7 +148,9 @@ check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
 check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
 check_service "FastAPI  " "curl -s http://localhost:7860/health"        ":7860"
-check_service "Streamlit" "curl -s http://localhost:8501"               ":8501"
+check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"
+check_service "Prometheus" "curl -s http://localhost:9090/-/healthy"           ":9090"
+check_service "Grafana"    "curl -s http://localhost:3001/api/health"          ":3001"
 
 echo ""
 echo "  🌐 UI:        http://$IP:8501"
