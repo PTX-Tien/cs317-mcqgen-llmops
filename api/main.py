@@ -98,3 +98,29 @@ def root():
             "GET /health": "Health check",
         }
     }
+
+from fastapi.responses import Response
+from api.pdf_exporter import export_exam_pdf
+
+@app.get("/export/pdf/{task_id}")
+def export_pdf(task_id: str, include_answers: bool = False):
+    """Export kết quả task thành PDF đề thi."""
+    result = AsyncResult(task_id, app=celery_app)
+    if result.state != "SUCCESS":
+        raise HTTPException(400, f"Job not done: {result.state}")
+    
+    data = result.result or {}
+    mcqs = data.get("mcqs", [])
+    if not mcqs:
+        raise HTTPException(404, "No MCQs found")
+    
+    pdf_bytes = export_exam_pdf(
+        mcqs,
+        exam_name=f"ĐỀ KIỂM TRA — {data.get('output_name', 'CS116')}".upper(),
+        include_answer_key=include_answers,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=exam_{task_id[:8]}.pdf"}
+    )
