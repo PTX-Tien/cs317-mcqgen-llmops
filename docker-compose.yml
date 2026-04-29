@@ -1,0 +1,85 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    environment:
+      - VLLM_URL=http://host.docker.internal:8000/v1
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn api.main:app --host 0.0.0.0 --port 7860
+    volumes:
+      - ./output:/app/output
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    environment:
+      - VLLM_URL=http://host.docker.internal:8000/v1
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A api.tasks worker --loglevel=info --concurrency=1
+    volumes:
+      - ./data:/app/data
+      - ./input:/app/input
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ui:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    command: >
+      streamlit run streamlit_app.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+
+  phoenix:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+    command: python -m phoenix.server.main serve --port 6006 --host 0.0.0.0
+    volumes:
+      - phoenix_data:/root/.phoenix
+
+  flower:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER=redis://redis:6379/0
+    depends_on:
+      - redis
+    command: celery -A api.tasks flower --port=5555
+
+volumes:
+  redis_data:
+  phoenix_data:
