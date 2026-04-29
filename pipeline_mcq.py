@@ -21,7 +21,7 @@ from pathlib import Path
 from openai import AsyncOpenAI
 import chromadb
 from sentence_transformers import SentenceTransformer
-from advanced_retrieval import adaptive_retrieve, emb_model, reranker, collection
+from advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
 
 # ── Config ────────────────────────────────────────────────────────
 VLLM_URL   = "http://localhost:8000/v1"

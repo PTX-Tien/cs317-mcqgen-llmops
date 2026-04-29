@@ -310,3 +310,141 @@ if __name__ == "__main__":
         asyncio.run(benchmark_adaptive())
     else:
         asyncio.run(benchmark())
+
+
+# ── Sentence-Window Collection ────────────────────────────────────
+try:
+    sw_collection = chroma.get_collection("concept_chunks_sw")
+    SW_AVAILABLE = True
+    print("  ✅ Sentence-Window collection loaded (4756 chunks)")
+except Exception:
+    sw_collection = None
+    SW_AVAILABLE = False
+    print("  ⚠️  SW collection not found — fallback to standard")
+
+
+def retrieve_sw_candidates(
+    embedding: list[float],
+    chapter_id: str,
+    top_k: int = 12
+) -> tuple[list[str], list[dict], list[float]]:
+    """Retrieve từ sentence-window collection."""
+    if not SW_AVAILABLE:
+        return retrieve_candidates(embedding, chapter_id, top_k)
+
+    results = sw_collection.query(
+        query_embeddings=[embedding],
+        n_results=top_k,
+        where={"chapter_id": chapter_id},
+        include=["documents", "metadatas", "distances"]
+    )
+    # documents đã là window_text (lưu lúc indexing)
+    return (
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    )
+
+
+async def adaptive_retrieve_sw(
+    topic: str,
+    chapter_id: str,
+    naive_threshold: float = 0.25,
+    top_k_final: int = 5
+) -> tuple[str, dict]:
+    """
+    Adaptive RAG + Sentence-Window:
+    - Retrieve từ SW collection (sentences nhỏ, chính xác hơn)
+    - documents trả về là window_text (context đầy đủ)
+    """
+    import numpy as np
+    debug = {}
+
+    # Step 1: Naive check với SW collection
+    emb_naive = emb_model.encode([topic])[0].tolist()
+    docs, metas, dists = retrieve_sw_candidates(emb_naive, chapter_id, top_k=12)
+    best_naive = 1 - min(dists) if dists else 0.0
+    debug["naive_best_score"] = round(best_naive, 3)
+    debug["collection"] = "sentence_window" if SW_AVAILABLE else "standard"
+
+    if best_naive >= naive_threshold:
+        debug["strategy"] = "sw_naive+rerank"
+        debug["hyde_query"] = None
+    else:
+        # HyDE + ensemble
+        debug["strategy"] = "sw_hyde+rerank"
+        hypo_q = await generate_hyde_query(topic)
+        debug["hyde_query"] = hypo_q
+
+        embs = emb_model.encode([topic, hypo_q])
+        avg  = 0.6 * embs[0] + 0.4 * embs[1]
+        avg  = avg / (np.linalg.norm(avg) + 1e-8)
+
+        docs2, metas2, dists2 = retrieve_sw_candidates(avg.tolist(), chapter_id, top_k=12)
+
+        # Merge naive + HyDE
+        seen = set()
+        for d, m, dist in zip(docs, metas, dists):
+            key = d[:80]
+            if key not in seen:
+                seen.add(key)
+                docs2.append(d); metas2.append(m); dists2.append(dist)
+        docs, metas, dists = docs2, metas2, dists2
+
+    # Rerank — query = topic (window_text đã đủ context)
+    selected_idx = rerank(topic, docs, top_k=top_k_final)
+    debug["top_scores_after_rerank"] = [
+        round(1 - dists[i], 3) for i in selected_idx if i < len(dists)
+    ]
+
+    context = format_context(docs, metas, selected_idx)
+    return context, debug
+
+
+async def benchmark_sw_vs_standard():
+    """So sánh Standard Adaptive RAG vs SW Adaptive RAG."""
+    test_cases = [
+        ("Missing Data",        "ch04"),
+        ("Decision Trees",      "ch07b"),
+        ("CNN Neural Networks", "ch08"),
+        ("Outlier Detection",   "ch04"),
+    ]
+
+    print("=" * 65)
+    print("BENCHMARK: Standard Adaptive vs Sentence-Window Adaptive RAG")
+    print("=" * 65)
+
+    for topic, chapter_id in test_cases:
+        import time
+
+        # Standard Adaptive
+        t0 = time.time()
+        _, dbg_std = await adaptive_retrieve(topic, chapter_id)
+        t_std = time.time() - t0
+
+        # SW Adaptive
+        t1 = time.time()
+        _, dbg_sw = await adaptive_retrieve_sw(topic, chapter_id)
+        t_sw = time.time() - t1
+
+        best_std = max(dbg_std["top_scores_after_rerank"]) if dbg_std["top_scores_after_rerank"] else 0
+        best_sw  = max(dbg_sw["top_scores_after_rerank"])  if dbg_sw["top_scores_after_rerank"]  else 0
+        delta = best_sw - best_std
+        verdict = "✅ SW better" if delta > 0.01 else ("➡️  Equal" if abs(delta) <= 0.01 else "⚠️  SW worse")
+
+        print(f"\nTopic: {topic}")
+        print(f"  Standard  : best={best_std:.3f} | {dbg_std['strategy']} | {t_std:.1f}s")
+        print(f"  SW        : best={best_sw:.3f}  | {dbg_sw['strategy']}  | {t_sw:.1f}s")
+        print(f"  Delta     : {delta:+.3f} → {verdict}")
+
+    print("\n" + "=" * 65)
+
+
+if __name__ == "__main__":
+    import asyncio, sys
+    if len(sys.argv) > 1 and sys.argv[1] == "adaptive":
+        asyncio.run(benchmark_adaptive())
+    elif len(sys.argv) > 1 and sys.argv[1] == "sw":
+        asyncio.run(benchmark_sw_vs_standard())
+    else:
+        asyncio.run(benchmark())
