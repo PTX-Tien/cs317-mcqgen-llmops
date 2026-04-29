@@ -1,0 +1,42 @@
+{
+  "title": "MCQGen LLMOps Dashboard",
+  "uid": "mcqgen-main",
+  "panels": [
+    {
+      "id": 1, "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "title": "vLLM Requests Running",
+      "type": "stat",
+      "targets": [{"expr": "vllm:num_requests_running{model_name=\"mcqgen\"}", "legendFormat": "Running"}],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 3}, {"color": "red", "value": 5}]}}}
+    },
+    {
+      "id": 2, "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "title": "GPU KV Cache Usage %",
+      "type": "gauge",
+      "targets": [{"expr": "vllm:gpu_cache_usage_perc{model_name=\"mcqgen\"} * 100", "legendFormat": "Cache %"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}}
+    },
+    {
+      "id": 3, "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "title": "Requests Waiting",
+      "type": "stat",
+      "targets": [{"expr": "vllm:num_requests_waiting{model_name=\"mcqgen\"}", "legendFormat": "Waiting"}],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 4, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "title": "Token Throughput (tokens/s)",
+      "type": "timeseries",
+      "targets": [{"expr": "rate(vllm:iteration_tokens_total_sum{model_name=\"mcqgen\"}[1m])", "legendFormat": "Tokens/s"}]
+    },
+    {
+      "id": 5, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "title": "Prefix Cache Hit Rate %",
+      "type": "timeseries",
+      "targets": [{"expr": "vllm:gpu_prefix_cache_hit_rate{model_name=\"mcqgen\"} * 100", "legendFormat": "Cache Hit %"}]
+    }
+  ],
+  "refresh": "10s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 36
+}
