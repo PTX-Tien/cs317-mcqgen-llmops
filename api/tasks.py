@@ -22,7 +22,9 @@ def run_mcq_pipeline(self, topics: list, output_name: str = "exam"):
     """Celery task: chạy MCQ pipeline async, update progress."""
     from pipeline_mcq import run_pipeline_with_topics
 
-    self.update_state(state="PROGRESS", meta={"step": "initializing", "progress": 5})
+    self.update_state(state="PROGRESS", meta={
+        "step": "🔍 Khởi tạo retrieval engine", "progress": 5
+    })
 
     async def _run():
         return await run_pipeline_with_topics(
