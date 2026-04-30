@@ -31,3 +31,4 @@ test_output.json
 
 # vLLM
 vllm_server.log
+.env
