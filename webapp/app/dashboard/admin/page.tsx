@@ -1,0 +1,156 @@
+"use client"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { api } from "@/lib/api"
+import { useAuthStore } from "@/lib/store"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { toast } from "sonner"
+
+export default function AdminPage() {
+  const router    = useRouter()
+  const { user }  = useAuthStore()
+  const [stats, setStats]   = useState<any>(null)
+  const [exams, setExams]   = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token")
+    if (!token) { router.push("/login"); return }
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      const [histRes, queueRes] = await Promise.all([
+        api.get("/history"),
+        api.get("/queue/status"),
+      ])
+      setExams(histRes.data.exams || [])
+      setStats({
+        total_exams:     histRes.data.exams?.length || 0,
+        success_exams:   histRes.data.exams?.filter((e: any) => e.status === "success").length || 0,
+        total_questions: histRes.data.exams?.reduce((s: number, e: any) => s + (e.n_questions || 0), 0) || 0,
+        avg_quality:     histRes.data.exams?.filter((e: any) => e.quality_avg)
+                           .reduce((s: number, e: any, _: any, arr: any[]) => s + e.quality_avg / arr.length, 0) || 0,
+        queue:           queueRes.data,
+      })
+    } catch { toast.error("Lỗi tải dữ liệu") }
+    finally { setLoading(false) }
+  }
+
+  const formatDate = (s: string) =>
+    new Date(s).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })
+
+  if (loading) return <div className="text-center py-20 text-slate-400">Đang tải...</div>
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">⚙️ Admin Dashboard</h1>
+        <p className="text-slate-500 text-sm">Quản lý hệ thống và dữ liệu</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "Tổng đề thi", value: stats?.total_exams, icon: "📋" },
+          { label: "Hoàn thành", value: stats?.success_exams, icon: "✅" },
+          { label: "Tổng câu hỏi", value: stats?.total_questions, icon: "❓" },
+          { label: "Quality avg", value: stats?.avg_quality?.toFixed(2) || "—", icon: "⭐" },
+        ].map((s) => (
+          <Card key={s.label}>
+            <CardContent className="p-4 text-center">
+              <div className="text-3xl mb-1">{s.icon}</div>
+              <div className="text-2xl font-bold">{s.value}</div>
+              <div className="text-xs text-slate-500">{s.label}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Tabs defaultValue="exams">
+        <TabsList>
+          <TabsTrigger value="exams">📋 Đề thi ({exams.length})</TabsTrigger>
+          <TabsTrigger value="system">🔧 Hệ thống</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="exams" className="space-y-2 mt-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-500">
+                  <th className="pb-2 pr-4">Tên đề</th>
+                  <th className="pb-2 pr-4">Người tạo</th>
+                  <th className="pb-2 pr-4">Số câu</th>
+                  <th className="pb-2 pr-4">Trạng thái</th>
+                  <th className="pb-2 pr-4">Quality</th>
+                  <th className="pb-2">Thời gian</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exams.map((exam) => (
+                  <tr key={exam.id} className="border-b hover:bg-slate-50">
+                    <td className="py-2 pr-4 font-medium">{exam.exam_name}</td>
+                    <td className="py-2 pr-4 text-slate-500">{exam.created_by}</td>
+                    <td className="py-2 pr-4">{exam.n_questions}</td>
+                    <td className="py-2 pr-4">
+                      <Badge variant={exam.status === "success" ? "default" : "secondary"} className="text-xs">
+                        {exam.status}
+                      </Badge>
+                    </td>
+                    <td className="py-2 pr-4">{exam.quality_avg?.toFixed(2) || "—"}</td>
+                    <td className="py-2 text-slate-500 text-xs">{formatDate(exam.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="system" className="mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Queue Status</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Trạng thái</span>
+                  <Badge variant={stats?.queue?.status === "idle" ? "default" : "secondary"}>
+                    {stats?.queue?.status}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span>Jobs đang chờ</span>
+                  <strong>{stats?.queue?.pending_jobs}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Ước tính</span>
+                  <strong>{stats?.queue?.estimated_wait_min} phút</strong>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-sm">External Links</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {[
+                  { label: "API Docs", url: "http://localhost:7860/docs" },
+                  { label: "Phoenix Monitor", url: "http://localhost:6006" },
+                  { label: "Grafana", url: "http://localhost:3001" },
+                  { label: "Flower Queue", url: "http://localhost:5555" },
+                  { label: "Prometheus", url: "http://localhost:9090" },
+                ].map((link) => (
+                  <a key={link.label} href={link.url} target="_blank"
+                    className="flex items-center justify-between p-2 rounded hover:bg-slate-50 text-sm">
+                    <span>{link.label}</span>
+                    <span className="text-blue-500">↗</span>
+                  </a>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
