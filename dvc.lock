@@ -17,37 +17,37 @@ stages:
       size: 13265
     - path: input/slide/
       hash: md5
-      md5: ce35a5bcebf2e0f926f410466bb8f2a4.dir
+      md5: f65cb39bafcda1d62f6b2b696ba28b29.dir
       size: 17754739
       nfiles: 11
     outs:
     - path: data/indexes/
       hash: md5
-      md5: 35405c6b974b1b693ea322b4288020c1.dir
-      size: 23835456
+      md5: a7a67ad22c5ed3832709cd644f77261d.dir
+      size: 23868360
       nfiles: 6
     - path: data/processed/concept_chunks.jsonl
       hash: md5
-      md5: cfd2ded3caff29f4136d5a26dd4c49cc
-      size: 1732047
+      md5: 1e25b9f604e0c1bf794eeb89cbe2cb5e
+      size: 1731939
   benchmark_rag:
     cmd: mkdir -p data/benchmarks && python advanced_retrieval.py adaptive > 
       data/benchmarks/rag_benchmark.log 2>&1
     deps:
     - path: advanced_retrieval.py
       hash: md5
-      md5: 18e113c03da4300cdf326ca990a3f151
-      size: 12287
+      md5: cf7e32e673f0344ff0c062206f5cc651
+      size: 17028
     - path: data/indexes/
       hash: md5
-      md5: cbd4fa2e6e4e501de2a3715d2e793a45.dir
-      size: 23835456
+      md5: 16bd96642f32f416fc114483442d6082.dir
+      size: 23868360
       nfiles: 6
     outs:
     - path: data/benchmarks/
       hash: md5
-      md5: d82ceea1847b1b03dcc009f09f1af1ff.dir
-      size: 2525
+      md5: de1542f1b98cb6a14fe4c5d6dbc71609.dir
+      size: 3663
       nfiles: 1
   transcript_chunking:
     cmd: python chunk_transcripts.py

@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/tienptx/llmops/llmops_v2
+PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
 
@@ -12,7 +12,7 @@ export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 export CUDA_VISIBLE_DEVICES=7
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/tienptx/.cache/huggingface
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 cd $PROJECT
