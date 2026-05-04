@@ -54,7 +54,13 @@ export interface JobResponse {
   task_id: string
   status: string
   queue_position: number
+  jobs_ahead?: number
+  active_jobs?: number
+  queued_jobs?: number
   estimated_wait_min: number
+  estimated_total_min?: number
+  estimated_runtime_min?: number
+  queue_wait_min?: number
   n_questions: number
   message: string
 }
@@ -62,7 +68,7 @@ export interface JobResponse {
 export type GenerationState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "queued"; position: number; estimatedWait: number; taskId: string }
+  | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string }
   | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string }
   | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string }
   | { status: "failed"; error: string }

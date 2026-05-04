@@ -298,18 +298,45 @@ async def run_pipeline_with_topics(
     progress_callback=None
 ) -> dict:
     """Được gọi từ Celery task."""
-    if progress_callback:
-        progress_callback(10, "loading_retriever")
+    def emit_progress(progress: int, step: str, **meta):
+        if not progress_callback:
+            return
+        try:
+            progress_callback(progress, step, **meta)
+        except TypeError:
+            progress_callback(progress, step)
 
-    all_tasks = []
+    task_specs = []
     for topic_cfg in topics:
         for seq in range(topic_cfg.get("n", 1)):
-            all_tasks.append(generate_one_mcq(topic_cfg, seq))
+            task_specs.append((topic_cfg, seq))
 
-    if progress_callback:
-        progress_callback(20, "generating")
+    total_questions = len(task_specs)
+    emit_progress(10, "loading_retriever",
+                  current_question=0, total_questions=total_questions)
 
-    results = await asyncio.gather(*all_tasks, return_exceptions=True)
+    completed_questions = 0
+
+    async def tracked_generate(topic_cfg: dict, seq: int):
+        nonlocal completed_questions
+        try:
+            return await generate_one_mcq(topic_cfg, seq)
+        finally:
+            completed_questions += 1
+            progress = 20 + int((completed_questions / total_questions) * 70) \
+                if total_questions else 90
+            emit_progress(
+                min(progress, 90),
+                f"generating {completed_questions}/{total_questions}",
+                current_question=completed_questions,
+                total_questions=total_questions,
+            )
+
+    emit_progress(20, "generating",
+                  current_question=0, total_questions=total_questions)
+
+    all_tasks = [tracked_generate(topic_cfg, seq) for topic_cfg, seq in task_specs]
+    results = await asyncio.gather(*all_tasks, return_exceptions=True) if all_tasks else []
     accepted = [r for r in results if isinstance(r, dict) and r]
 
     # Save output
@@ -320,8 +347,8 @@ async def run_pipeline_with_topics(
         for mcq in accepted:
             f.write(json.dumps(mcq, ensure_ascii=False) + "\n")
 
-    if progress_callback:
-        progress_callback(95, "saving")
+    emit_progress(95, "saving",
+                  current_question=total_questions, total_questions=total_questions)
 
     return {
         "accepted": len(accepted),

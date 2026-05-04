@@ -6,12 +6,19 @@ import { useAuthStore } from "@/lib/store"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+
+interface QueueStatus {
+  status: "idle" | "busy"
+  pending_jobs: number
+  active_jobs?: number
+  queued_jobs?: number
+  estimated_wait_min: number
+}
 
 export default function DashboardPage() {
   const router = useRouter()
   const { user, setAuth } = useAuthStore()
-  const [queueStatus, setQueueStatus] = useState<any>(null)
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem("access_token")
@@ -24,7 +31,7 @@ export default function DashboardPage() {
     }
     // Load queue status
     api.get("/queue/status").then(({ data }) => setQueueStatus(data)).catch(() => {})
-  }, [])
+  }, [router, setAuth, user])
 
   return (
     <div className="space-y-6">
@@ -47,11 +54,13 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${queueStatus?.status === "idle" ? "bg-green-500" : "bg-yellow-500"}`} />
               <span className="text-2xl font-bold">
-                {queueStatus?.status === "idle" ? "Sẵn sàng" : `${queueStatus?.pending_jobs} job đang chờ`}
+                {queueStatus?.status === "idle" ? "Sẵn sàng" : `${queueStatus?.pending_jobs} job trong hệ thống`}
               </span>
             </div>
             {queueStatus?.pending_jobs > 0 && (
-              <p className="text-sm text-slate-500 mt-1">Ước tính ~{queueStatus.estimated_wait_min} phút</p>
+              <p className="text-sm text-slate-500 mt-1">
+                Đang chạy {queueStatus.active_jobs || 0}, đang chờ {queueStatus.queued_jobs || 0} • Ước tính ~{queueStatus.estimated_wait_min} phút
+              </p>
             )}
           </CardContent>
         </Card>

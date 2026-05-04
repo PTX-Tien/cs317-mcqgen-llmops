@@ -20,23 +20,31 @@ celery_app.conf.update(
 @celery_app.task(bind=True)
 def run_mcq_pipeline(self, topics: list, output_name: str = "exam"):
     """Celery task: chạy MCQ pipeline async, update progress."""
-    from pipeline_mcq import run_pipeline_with_topics
+    total_questions = sum(int(t.get("n", 1)) for t in topics)
 
-    self.update_state(state="PROGRESS", meta={
-        "step": "🔍 Khởi tạo retrieval engine", "progress": 5
-    })
+    def publish_progress(progress: int, step: str, **meta):
+        payload = {
+            "step": step,
+            "progress": progress,
+            "current_question": meta.pop("current_question", 0),
+            "total_questions": meta.pop("total_questions", total_questions),
+        }
+        payload.update(meta)
+        self.update_state(state="PROGRESS", meta=payload)
+
+    publish_progress(1, "Worker đã nhận job", current_question=0)
 
     async def _run():
+        publish_progress(5, "Đang nạp pipeline/RAG", current_question=0)
+        from pipeline_mcq import run_pipeline_with_topics
+
         return await run_pipeline_with_topics(
             topics=topics,
             output_name=output_name,
-            progress_callback=lambda p, s: self.update_state(
-                state="PROGRESS",
-                meta={"step": s, "progress": p}
-            )
+            progress_callback=publish_progress,
         )
 
     result = asyncio.run(_run())
 
-    self.update_state(state="PROGRESS", meta={"step": "done", "progress": 100})
+    publish_progress(100, "done", current_question=total_questions)
     return result

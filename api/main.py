@@ -16,6 +16,7 @@ from celery.result import AsyncResult
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlmodel import Session, select
 
 from api.tasks import celery_app, run_mcq_pipeline
@@ -57,6 +58,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+)
 
 # ── Schemas ───────────────────────────────────────────────────────
 class TopicConfig(BaseModel):
@@ -77,6 +83,49 @@ class LoginResponse(BaseModel):
     expires_in:    int
     role:          str
     full_name:     str
+
+GENERATION_MIN_PER_QUESTION = 3
+QUEUE_MIN_PER_JOB = 10
+
+def estimate_generation_minutes(n_questions: int, queue_depth: int = 0) -> int:
+    runtime = max(1, n_questions * GENERATION_MIN_PER_QUESTION)
+    queue_wait = queue_depth * QUEUE_MIN_PER_JOB
+    return runtime + queue_wait
+
+def _count_inspected_tasks(tasks_by_worker) -> int:
+    return sum(len(tasks) for tasks in (tasks_by_worker or {}).values())
+
+def get_queue_snapshot() -> dict:
+    """Return Celery queue load before submitting a new task."""
+    try:
+        inspector = celery_app.control.inspect(timeout=1.0)
+        active = inspector.active() or {}
+        reserved = inspector.reserved() or {}
+        scheduled = inspector.scheduled() or {}
+    except Exception as exc:
+        log.warning("queue_inspect_failed", error=str(exc))
+        return {
+            "active_jobs": 0,
+            "reserved_jobs": 0,
+            "scheduled_jobs": 0,
+            "queued_jobs": 0,
+            "total_jobs": 0,
+            "inspect_ok": False,
+        }
+
+    active_jobs = _count_inspected_tasks(active)
+    reserved_jobs = _count_inspected_tasks(reserved)
+    scheduled_jobs = _count_inspected_tasks(scheduled)
+    queued_jobs = reserved_jobs + scheduled_jobs
+    total_jobs = active_jobs + queued_jobs
+    return {
+        "active_jobs": active_jobs,
+        "reserved_jobs": reserved_jobs,
+        "scheduled_jobs": scheduled_jobs,
+        "queued_jobs": queued_jobs,
+        "total_jobs": total_jobs,
+        "inspect_ok": True,
+    }
 
 # ── Auth endpoints ────────────────────────────────────────────────
 @app.post("/auth/login", response_model=LoginResponse)
@@ -114,18 +163,17 @@ def health():
 
 @app.get("/queue/status")
 def queue_status(user: dict = Depends(get_current_user)):
-    try:
-        inspector = celery_app.control.inspect(timeout=1.0)
-        reserved  = inspector.reserved() or {}
-        active    = inspector.active()   or {}
-        depth = sum(len(v) for v in reserved.values()) + \
-                sum(len(v) for v in active.values())
-    except Exception:
-        depth = 0
+    queue = get_queue_snapshot()
+    depth = queue["total_jobs"]
     return {
-        "pending_jobs":      depth,
-        "estimated_wait_min": depth * 7,
-        "status":            "busy" if depth > 0 else "idle",
+        "pending_jobs":       depth,
+        "active_jobs":        queue["active_jobs"],
+        "queued_jobs":        queue["queued_jobs"],
+        "reserved_jobs":      queue["reserved_jobs"],
+        "scheduled_jobs":     queue["scheduled_jobs"],
+        "estimated_wait_min": depth * QUEUE_MIN_PER_JOB,
+        "status":             "busy" if depth > 0 else "idle",
+        "inspect_ok":         queue["inspect_ok"],
     }
 
 # ── Generation ────────────────────────────────────────────────────
@@ -140,14 +188,12 @@ def generate(
     topics = [t.model_dump() for t in req.topics]
     n_q    = sum(t["n"] for t in topics)
 
-    # Queue depth
-    try:
-        inspector = celery_app.control.inspect(timeout=1.0)
-        reserved  = inspector.reserved() or {}
-        depth = sum(len(v) for v in reserved.values())
-    except Exception:
-        depth = 0
+    queue = get_queue_snapshot()
+    jobs_ahead = queue["total_jobs"]
 
+    estimated_runtime_min = estimate_generation_minutes(n_q)
+    queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
+    estimated_total_min = estimated_runtime_min + queue_wait_min
     task = run_mcq_pipeline.delay(topics, req.output_name)
 
     # Save to DB
@@ -165,15 +211,23 @@ def generate(
         task_id=task.id,
         user=user["username"],
         n_questions=n_q,
-        queue_depth=depth,
+        queue_depth=jobs_ahead,
+        active_jobs=queue["active_jobs"],
+        queued_jobs=queue["queued_jobs"],
     )
     return {
         "task_id":            task.id,
         "status":             "queued",
-        "queue_position":     depth + 1,
-        "estimated_wait_min": depth * 7,
+        "queue_position":     jobs_ahead + 1,
+        "jobs_ahead":         jobs_ahead,
+        "active_jobs":        queue["active_jobs"],
+        "queued_jobs":        queue["queued_jobs"],
+        "estimated_wait_min": estimated_total_min,
+        "estimated_total_min": estimated_total_min,
+        "estimated_runtime_min": estimated_runtime_min,
+        "queue_wait_min":     queue_wait_min,
         "n_questions":        n_q,
-        "message":            f"Generating {n_q} MCQs — position #{depth + 1}",
+        "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
     }
 
 @app.get("/status/{task_id}")
@@ -181,6 +235,15 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
     result = AsyncResult(task_id, app=celery_app)
     if result.state == "PENDING":
         return {"task_id": task_id, "state": "pending", "progress": 0}
+    elif result.state == "STARTED":
+        return {
+            "task_id": task_id,
+            "state": "running",
+            "progress": 1,
+            "step": "Worker đã nhận job",
+            "current_question": 0,
+            "total_questions": 0,
+        }
     elif result.state == "PROGRESS":
         meta = result.info or {}
         return {
@@ -298,6 +361,14 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             result = AsyncResult(task_id, app=celery_app)
             if result.state == "PENDING":
                 await websocket.send_json({"state": "pending", "progress": 0})
+            elif result.state == "STARTED":
+                await websocket.send_json({
+                    "state":            "running",
+                    "progress":         1,
+                    "step":             "Worker đã nhận job",
+                    "current_question": 0,
+                    "total_questions":  0,
+                })
             elif result.state == "PROGRESS":
                 meta = result.info or {}
                 await websocket.send_json({

@@ -4,6 +4,8 @@
 PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
+mkdir -p $PROJECT/redis_data
+mkdir -p $PROJECT/tmp
 
 source /mmlab_students/storageStudents/nguyenvd/anaconda3/etc/profile.d/conda.sh
 conda activate mcqgen_v2 2>/dev/null
@@ -11,7 +13,7 @@ conda activate mcqgen_v2 2>/dev/null
 export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=6
 export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
@@ -78,6 +80,7 @@ start_bg "vLLM" \
         --max-model-len 8192 \
         --gpu-memory-utilization 0.90 \
         --enforce-eager --enable-prefix-caching \
+        --disable-log-requests \
         --max-num-seqs 4 --port 8000 --host 0.0.0.0 \
         --served-model-name mcqgen" \
     "$LOG_DIR/vllm.log"
@@ -85,7 +88,7 @@ start_bg "vLLM" \
 # Phoenix
 start_bg "Phoenix" \
     "curl -s http://localhost:6006/healthz" \
-    "python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
+    "TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
     "$LOG_DIR/phoenix.log"
 
 # Streamlit

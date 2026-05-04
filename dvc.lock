@@ -46,8 +46,8 @@ stages:
     outs:
     - path: data/benchmarks/
       hash: md5
-      md5: de1542f1b98cb6a14fe4c5d6dbc71609.dir
-      size: 3663
+      md5: f959773855e3be29352c73e628814c29.dir
+      size: 3669
       nfiles: 1
   transcript_chunking:
     cmd: python chunk_transcripts.py
