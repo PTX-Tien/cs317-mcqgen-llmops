@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { api, WS_URL } from "@/lib/api"
-import { TopicConfig, MCQ, GenerationState } from "@/types"
+import { TopicConfig, MCQ, GenerationState, RetrievalMode } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -47,7 +47,16 @@ const PIPELINE_STEPS = [
   { label: "Assemble", icon: "📝" },
   { label: "Evaluate", icon: "✅" },
 ]
-const EST_MIN_PER_QUESTION = 3
+const EST_MIN_PER_QUESTION_BY_MODE: Record<RetrievalMode, number> = {
+  fast: 7,
+  auto: 8,
+  quality: 10,
+}
+const RETRIEVAL_MODES: Array<{ value: RetrievalMode; label: string }> = [
+  { value: "fast", label: "Nhanh" },
+  { value: "auto", label: "Cân bằng" },
+  { value: "quality", label: "Chất lượng cao" },
+]
 
 function getApiErrorDetail(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("response" in error)) {
@@ -146,6 +155,7 @@ export default function GeneratePage() {
   const [topics, setTopics] = useState<TopicConfig[]>([
     { topic_id: "t1", chapter_id: "ch07b", topic: "Decision Trees", difficulty: "G2", n: 3 }
   ])
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto")
   const [genState, setGenState] = useState<GenerationState>({ status: "idle" })
   const [mcqs, setMcqs] = useState<MCQ[]>([])
   const wsRef = useRef<WebSocket | null>(null)
@@ -157,6 +167,10 @@ export default function GeneratePage() {
 
   const totalQ = topics.reduce((s, t) => s + t.n, 0)
   const validTopics = topics.filter((t) => t.chapter_id && t.topic.trim())
+  const localEstimatedRuntime = Math.max(
+    1,
+    Math.ceil(totalQ * EST_MIN_PER_QUESTION_BY_MODE[retrievalMode])
+  )
 
   const addTopic = () => {
     if (topics.length >= 5) return
@@ -168,14 +182,18 @@ export default function GeneratePage() {
     setGenState({ status: "submitting" })
     setMcqs([])
     try {
-      const { data } = await api.post("/generate", { topics: validTopics, output_name: examName })
+      const { data } = await api.post("/generate", {
+        topics: validTopics,
+        output_name: examName,
+        retrieval_mode: retrievalMode,
+      })
       taskIdRef.current = data.task_id
       setGenState({
         status: "queued",
         position: data.queue_position,
         estimatedWait: data.estimated_total_min ?? data.estimated_wait_min,
         queueWait: data.queue_wait_min ?? 0,
-        estimatedRuntime: data.estimated_runtime_min ?? Math.max(1, Math.ceil(totalQ * EST_MIN_PER_QUESTION)),
+        estimatedRuntime: data.estimated_runtime_min ?? localEstimatedRuntime,
         jobsAhead: data.jobs_ahead ?? Math.max(0, data.queue_position - 1),
         taskId: data.task_id,
       })
@@ -271,9 +289,22 @@ export default function GeneratePage() {
                 <Label>Tên đề thi</Label>
                 <Input value={examName} onChange={(e) => setExamName(e.target.value)} className="mt-1" placeholder="exam_01" />
               </div>
+              <div>
+                <Label>Chế độ RAG</Label>
+                <Select value={retrievalMode} onValueChange={(v) => setRetrievalMode((v ?? "auto") as RetrievalMode)}>
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RETRIEVAL_MODES.map((mode) => (
+                      <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="text-sm text-slate-500">
                 <span className="font-medium">{validTopics.length} topic</span> • <span className="font-medium">{totalQ} câu hỏi</span>
-                <br /><span className="text-xs">Ước tính ~{Math.max(1, Math.ceil(totalQ * EST_MIN_PER_QUESTION))} phút</span>
+                <br /><span className="text-xs">Ước tính ~{localEstimatedRuntime} phút</span>
               </div>
             </CardContent>
           </Card>

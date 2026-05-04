@@ -20,6 +20,8 @@ export interface TopicConfig {
   n: number
 }
 
+export type RetrievalMode = "fast" | "auto" | "quality"
+
 export interface MCQOption {
   A: string
   B: string
@@ -48,6 +50,7 @@ export interface MCQ {
 export interface GenerateRequest {
   topics: TopicConfig[]
   output_name: string
+  retrieval_mode: RetrievalMode
 }
 
 export interface JobResponse {
@@ -62,6 +65,7 @@ export interface JobResponse {
   estimated_runtime_min?: number
   queue_wait_min?: number
   n_questions: number
+  retrieval_mode?: RetrievalMode
   message: string
 }
 

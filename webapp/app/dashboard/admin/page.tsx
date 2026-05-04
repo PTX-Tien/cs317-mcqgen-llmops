@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 
@@ -33,11 +34,33 @@ interface AdminStats {
   queue: QueueStatus
 }
 
+interface WarmupState {
+  status: "idle" | "running" | "success" | "failed"
+  progress: number
+  step: string
+  error?: string
+}
+
+interface WarmupStatusResponse {
+  state: string
+  progress?: number
+  step?: string
+  error?: string
+  ready?: boolean
+}
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
 export default function AdminPage() {
   const router    = useRouter()
   const [stats, setStats]   = useState<AdminStats | null>(null)
   const [exams, setExams]   = useState<ExamSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [warmup, setWarmup] = useState<WarmupState>({
+    status: "idle",
+    progress: 0,
+    step: "",
+  })
 
   useEffect(() => {
     const token = localStorage.getItem("access_token")
@@ -78,6 +101,43 @@ export default function AdminPage() {
 
   const formatDate = (s: string) =>
     new Date(s).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })
+
+  const handleWarmup = async () => {
+    setWarmup({ status: "running", progress: 0, step: "Đang gửi warmup job" })
+    try {
+      const { data } = await api.post("/admin/warmup")
+      const taskId = data.task_id
+      const deadline = Date.now() + 15 * 60 * 1000
+
+      while (Date.now() < deadline) {
+        await sleep(2000)
+        const statusRes = await api.get<WarmupStatusResponse>(`/status/${taskId}`)
+        const status = statusRes.data
+        if (status.state === "running") {
+          setWarmup({
+            status: "running",
+            progress: status.progress ?? 0,
+            step: status.step || "Đang warm up",
+          })
+        } else if (status.state === "success") {
+          setWarmup({
+            status: "success",
+            progress: 100,
+            step: status.ready ? "Hệ thống đã sẵn sàng" : "Warmup hoàn tất",
+          })
+          toast.success("Warmup hoàn tất")
+          return
+        } else if (status.state === "failed") {
+          throw new Error(status.error || "Warmup thất bại")
+        }
+      }
+      throw new Error("Warmup timeout")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Warmup thất bại"
+      setWarmup({ status: "failed", progress: 0, step: "", error: message })
+      toast.error(message)
+    }
+  }
 
   if (loading) return <div className="text-center py-20 text-slate-400">Đang tải...</div>
 
@@ -172,6 +232,20 @@ export default function AdminPage() {
                   <span>Ước tính</span>
                   <strong>{stats?.queue?.estimated_wait_min} phút</strong>
                 </div>
+                <Button
+                  onClick={handleWarmup}
+                  disabled={warmup.status === "running"}
+                  className="w-full mt-3"
+                >
+                  Warm up hệ thống
+                </Button>
+                {warmup.status !== "idle" && (
+                  <div className="text-xs text-slate-500">
+                    {warmup.status === "running" && `${warmup.progress}% • ${warmup.step}`}
+                    {warmup.status === "success" && warmup.step}
+                    {warmup.status === "failed" && warmup.error}
+                  </div>
+                )}
               </CardContent>
             </Card>
             <Card>

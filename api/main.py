@@ -19,7 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlmodel import Session, select
 
-from api.tasks import celery_app, run_mcq_pipeline
+from api.tasks import celery_app, run_mcq_pipeline, warmup_system
 from api.core.config import settings
 from api.core.logger import setup_logging, log, CorrelationIDMiddleware
 from api.core.auth import (
@@ -75,6 +75,7 @@ class TopicConfig(BaseModel):
 class GenerateRequest(BaseModel):
     topics:      List[TopicConfig]
     output_name: str = "exam"
+    retrieval_mode: str = "auto"
 
 class LoginResponse(BaseModel):
     access_token:  str
@@ -84,13 +85,17 @@ class LoginResponse(BaseModel):
     role:          str
     full_name:     str
 
-GENERATION_MIN_PER_QUESTION = 3
+GENERATION_MIN_PER_QUESTION_BY_MODE = {
+    "fast": 7,
+    "auto": 8,
+    "quality": 10,
+}
 QUEUE_MIN_PER_JOB = 10
 
-def estimate_generation_minutes(n_questions: int, queue_depth: int = 0) -> int:
-    runtime = max(1, n_questions * GENERATION_MIN_PER_QUESTION)
-    queue_wait = queue_depth * QUEUE_MIN_PER_JOB
-    return runtime + queue_wait
+def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") -> int:
+    minutes_per_question = GENERATION_MIN_PER_QUESTION_BY_MODE.get(retrieval_mode, 8)
+    runtime = max(1, n_questions * minutes_per_question)
+    return runtime
 
 def _count_inspected_tasks(tasks_by_worker) -> int:
     return sum(len(tasks) for tasks in (tasks_by_worker or {}).values())
@@ -176,6 +181,16 @@ def queue_status(user: dict = Depends(get_current_user)):
         "inspect_ok":         queue["inspect_ok"],
     }
 
+@app.post("/admin/warmup")
+def admin_warmup(user: dict = Depends(require_role("teacher"))):
+    task = warmup_system.delay()
+    log.info("warmup_submitted", task_id=task.id, user=user["username"])
+    return {
+        "task_id": task.id,
+        "status": "queued",
+        "message": "Warming RAG retriever and vLLM inside Celery worker",
+    }
+
 # ── Generation ────────────────────────────────────────────────────
 @app.post("/generate")
 @limiter.limit(settings.RATE_LIMIT_TEACHER)
@@ -187,14 +202,17 @@ def generate(
 ):
     topics = [t.model_dump() for t in req.topics]
     n_q    = sum(t["n"] for t in topics)
+    retrieval_mode = req.retrieval_mode.lower()
+    if retrieval_mode not in {"fast", "auto", "quality"}:
+        raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
     queue = get_queue_snapshot()
     jobs_ahead = queue["total_jobs"]
 
-    estimated_runtime_min = estimate_generation_minutes(n_q)
+    estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
     queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
     estimated_total_min = estimated_runtime_min + queue_wait_min
-    task = run_mcq_pipeline.delay(topics, req.output_name)
+    task = run_mcq_pipeline.delay(topics, req.output_name, retrieval_mode)
 
     # Save to DB
     exam = Exam(
@@ -211,6 +229,7 @@ def generate(
         task_id=task.id,
         user=user["username"],
         n_questions=n_q,
+        retrieval_mode=retrieval_mode,
         queue_depth=jobs_ahead,
         active_jobs=queue["active_jobs"],
         queued_jobs=queue["queued_jobs"],
@@ -227,6 +246,7 @@ def generate(
         "estimated_runtime_min": estimated_runtime_min,
         "queue_wait_min":     queue_wait_min,
         "n_questions":        n_q,
+        "retrieval_mode":     retrieval_mode,
         "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
     }
 
@@ -256,13 +276,20 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
         }
     elif result.state == "SUCCESS":
         data = result.result or {}
-        return {
+        payload = {
             "task_id":  task_id,
             "state":    "success",
             "progress": 100,
             "accepted": data.get("accepted", 0),
             "failed":   data.get("failed", 0),
         }
+        if data.get("type") == "warmup":
+            payload.update({
+                "type": "warmup",
+                "ready": data.get("ready", False),
+                "details": data,
+            })
+        return payload
     elif result.state == "FAILURE":
         return {"task_id": task_id, "state": "failed", "error": str(result.info)}
     return {"task_id": task_id, "state": result.state}

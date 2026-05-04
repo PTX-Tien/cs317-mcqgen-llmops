@@ -77,18 +77,18 @@ start_bg "vLLM" \
     "curl -s http://localhost:8000/health" \
     "vllm serve models/Qwen3-8B-AWQ \
         --dtype half --quantization awq \
-        --max-model-len 8192 \
+        --max-model-len 4096 \
         --gpu-memory-utilization 0.90 \
         --enforce-eager --enable-prefix-caching \
         --disable-log-requests \
-        --max-num-seqs 4 --port 8000 --host 0.0.0.0 \
+        --max-num-seqs 8 --port 8000 --host 0.0.0.0 \
         --served-model-name mcqgen" \
     "$LOG_DIR/vllm.log"
 
 # Phoenix
 start_bg "Phoenix" \
     "curl -s http://localhost:6006/healthz" \
-    "TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
+    "env TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
     "$LOG_DIR/phoenix.log"
 
 # Streamlit
