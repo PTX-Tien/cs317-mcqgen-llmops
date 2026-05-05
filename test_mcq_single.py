@@ -1,6 +1,6 @@
 """
 test_mcq_single.py — Chạy 1 câu MCQ end-to-end qua vLLM API mới
-Mục đích: validate Qwen3-8B-AWQ sinh MCQ tiếng Việt đạt chất lượng chưa
+Mục đích: validate Qwen2.5-7B-Instruct sinh MCQ tiếng Việt đạt chất lượng chưa
 
 Chạy: python test_mcq_single.py
 """

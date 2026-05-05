@@ -70,7 +70,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium text-slate-500">Model</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-bold">Qwen3-8B-AWQ</p>
+            <p className="text-xl font-bold">Qwen2.5-7B-Instruct</p>
             <p className="text-sm text-slate-500">RTX 2080 Ti 11GB</p>
           </CardContent>
         </Card>

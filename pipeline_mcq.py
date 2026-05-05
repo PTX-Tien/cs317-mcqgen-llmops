@@ -33,6 +33,14 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ENABLE_LLM_EVAL = os.getenv("ENABLE_LLM_EVAL", "0") == "1"
 DEFAULT_RETRIEVAL_MODE = os.getenv("DEFAULT_RETRIEVAL_MODE", "auto")
 
+def env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+MAX_CONCURRENT_QUESTIONS = env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 2)
+
 TOPICS = [
     # Thay "Missing Data" bằng các subtopic cụ thể
     {"topic_id": "ch04_t01", "chapter_id": "ch04",
@@ -182,6 +190,34 @@ def parse_json(text: str) -> dict:
         return {"error": str(e), "raw": text[:300]}
 
 
+def _truncate_for_log(text: str, limit: int = 2000) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n... [truncated {len(text) - limit} chars]"
+
+
+def log_llm_parse_error(stage: str, q_id: str, raw_text: str, parsed: dict | None = None):
+    parsed = parsed or {}
+    print(f"  ❌ {stage} error [{q_id}]")
+    print(f"  [LLM_PARSE_ERROR] stage={stage} q_id={q_id} error={parsed.get('error', 'unknown')}")
+    if parsed.get("raw"):
+        print(f"  [LLM_PARSE_ERROR] parsed_raw_snippet:\n{_truncate_for_log(str(parsed['raw']))}")
+    print(f"  [LLM_PARSE_ERROR] raw_output:\n{_truncate_for_log(raw_text)}")
+
+
+def log_mcq_debug(q_id: str, mcq: dict):
+    preview = {
+        "question_id": q_id,
+        "question_text": mcq.get("question_text"),
+        "options": mcq.get("options"),
+        "correct_answers": mcq.get("correct_answers"),
+        "correct_rationale": mcq.get("correct_rationale"),
+    }
+    print("[MCQ_DEBUG] assembled_question:")
+    print(json.dumps(preview, ensure_ascii=False, indent=2))
+
+
 @asynccontextmanager
 async def atimer(name: str, q_id: str):
     t0 = time.perf_counter()
@@ -232,7 +268,7 @@ async def generate_one_mcq(
             raw_p1 = await llm(p1_prompt, temperature=0.7, max_tokens=384)
         p1 = parse_json_output(raw_p1)
         if "error" in p1:
-            print(f"  ❌ P1 error [{q_id}]")
+            log_llm_parse_error("P1", q_id, raw_p1, p1)
             return None
 
         # ── Call 2: P4 Gen Distractors ────────────────────────────
@@ -242,7 +278,7 @@ async def generate_one_mcq(
         p4 = parse_json_output(raw_p4)
         candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
         if not candidates:
-            print(f"  ❌ P4 error [{q_id}]")
+            log_llm_parse_error("P4", q_id, raw_p4, p4)
             return None
 
         # ── Call 3-5: P5+P6+P7 Select Distractors ─────────────────
@@ -275,8 +311,9 @@ async def generate_one_mcq(
             raw_p8 = await llm(p8_prompt, temperature=0.3, max_tokens=512)
         p8 = parse_json_output(raw_p8)
         if "error" in p8:
-            print(f"  ❌ P8 error [{q_id}]")
+            log_llm_parse_error("P8", q_id, raw_p8, p8)
             return None
+        log_mcq_debug(q_id, p8)
 
         # ── Optional Call 7: Eval Overall ─────────────────────────
         if ENABLE_LLM_EVAL:
@@ -309,12 +346,21 @@ async def generate_one_mcq(
 # ── Run all topics ─────────────────────────────────────────────────
 async def run_pipeline():
     t0 = time.time()
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUESTIONS)
+
+    async def bounded_generate(topic_cfg: dict, seq: int):
+        async with semaphore:
+            return await generate_one_mcq(topic_cfg, seq)
+
     all_tasks = []
     for topic_cfg in TOPICS:
         for seq in range(topic_cfg["n"]):
-            all_tasks.append(generate_one_mcq(topic_cfg, seq))
+            all_tasks.append(bounded_generate(topic_cfg, seq))
 
-    print(f"Generating {len(all_tasks)} MCQs async...\n")
+    print(
+        f"Generating {len(all_tasks)} MCQs async "
+        f"(max_concurrent={MAX_CONCURRENT_QUESTIONS})...\n"
+    )
     results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
     accepted = [r for r in results if isinstance(r, dict) and r]
@@ -410,10 +456,17 @@ async def run_pipeline_with_topics(
                 total_questions=total_questions,
             )
 
-    emit_progress(25, "generating",
+    max_concurrent_questions = min(MAX_CONCURRENT_QUESTIONS, total_questions or 1)
+    semaphore = asyncio.Semaphore(max_concurrent_questions)
+
+    async def bounded_tracked_generate(topic_cfg: dict, seq: int):
+        async with semaphore:
+            return await tracked_generate(topic_cfg, seq)
+
+    emit_progress(25, f"generating concurrency={max_concurrent_questions}",
                   current_question=0, total_questions=total_questions)
 
-    all_tasks = [tracked_generate(topic_cfg, seq) for topic_cfg, seq in task_specs]
+    all_tasks = [bounded_tracked_generate(topic_cfg, seq) for topic_cfg, seq in task_specs]
     results = await asyncio.gather(*all_tasks, return_exceptions=True) if all_tasks else []
     for result in results:
         if isinstance(result, Exception):

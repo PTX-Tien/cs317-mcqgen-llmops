@@ -859,16 +859,64 @@ Kiểm tra từng distractor (phương án SAI) theo 6 loại IWF:
 def parse_json_output(raw_text: str) -> dict[str, Any]:
     """Parse JSON from LLM output — handle text before/after JSON block."""
     text = raw_text.strip()
-    for match in re.finditer(r'\{', text):
-        start = match.start()
+
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1].strip()
+
+    def try_load(candidate: str) -> dict[str, Any] | None:
         try:
-            return json.loads(text[start:])
+            parsed = json.loads(candidate.strip())
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
-            continue
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text[:500], "error": "parse_failed"}
+            return None
+
+    candidates = [text]
+    candidates.extend(
+        match.group(1).strip()
+        for match in re.finditer(r"```(?:json|JSON)?\s*(.*?)```", text, flags=re.DOTALL)
+    )
+    if text.startswith("```"):
+        stripped = re.sub(r"^```(?:json|JSON)?\s*", "", text)
+        stripped = re.sub(r"\s*```$", "", stripped)
+        candidates.append(stripped.strip())
+
+    for candidate in candidates:
+        parsed = try_load(candidate)
+        if parsed is not None:
+            return parsed
+
+    pairs = {"{": "}", "[": "]"}
+    for match in re.finditer(r"[\{\[]", text):
+        start = match.start()
+        stack: list[str] = []
+        in_string = False
+        escaped = False
+
+        for idx, char in enumerate(text[start:], start=start):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char in pairs:
+                stack.append(pairs[char])
+            elif char in "}]":
+                if not stack or char != stack[-1]:
+                    break
+                stack.pop()
+                if not stack:
+                    parsed = try_load(text[start:idx + 1])
+                    if parsed is not None:
+                        return parsed
+                    break
+
+    return {"raw": text[:500], "error": "parse_failed"}
 
 
 def _to_seconds(ts: str | float | None) -> str:
