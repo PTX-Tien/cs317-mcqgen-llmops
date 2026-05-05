@@ -39,7 +39,27 @@ def env_int(name: str, default: int, minimum: int = 1) -> int:
     except ValueError:
         return default
 
-MAX_CONCURRENT_QUESTIONS = env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 2)
+def env_float(name: str, default: float, minimum: float = 0.1) -> float:
+    try:
+        return max(minimum, float(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+# Keep these values aligned with vLLM --max-num-seqs. For the current 4-GPU
+# Qwen2.5-7B-Instruct setup, 4 concurrent question pipelines gives vLLM enough
+# in-flight requests to batch without opening multiple Celery jobs.
+MAX_CONCURRENT_QUESTIONS = env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 4)
+MAX_CONCURRENT_LLM_REQUESTS = env_int(
+    "MCQGEN_LLM_MAX_CONCURRENCY",
+    MAX_CONCURRENT_QUESTIONS,
+)
+VLLM_TIMEOUT_SECONDS = env_float(
+    "VLLM_TIMEOUT_SECONDS",
+    env_float("VLLM_TIMEOUT", 180.0),
+)
+VLLM_MAX_RETRIES = env_int("VLLM_MAX_RETRIES", 1, minimum=0)
+_LLM_SEMAPHORES: dict[int, asyncio.Semaphore] = {}
+_LLM_CLIENTS: dict[int, AsyncOpenAI] = {}
 
 TOPICS = [
     # Thay "Missing Data" bằng các subtopic cụ thể
@@ -74,8 +94,6 @@ Bạn đang biên soạn câu hỏi trắc nghiệm cho sinh viên đại học.
 # ── Phoenix Tracing ──────────────────────────────────────────────
 from monitoring.setup_tracing import init_tracing
 init_tracing(project_name='mcqgen')
-
-client_llm = AsyncOpenAI(base_url=VLLM_URL, api_key="x")
 
 # ── Retrieval setup ───────────────────────────────────────────────
 print("Ready.\n")  # models loaded in advanced_retrieval.py
@@ -162,17 +180,43 @@ def prompt_eval(mcq: dict) -> str:
 }}"""
 
 # ── LLM call ──────────────────────────────────────────────────────
+def get_llm_semaphore() -> asyncio.Semaphore:
+    """Return a loop-local semaphore so repeated Celery asyncio.run calls are safe."""
+    loop = asyncio.get_running_loop()
+    loop_key = id(loop)
+    semaphore = _LLM_SEMAPHORES.get(loop_key)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_REQUESTS)
+        _LLM_SEMAPHORES[loop_key] = semaphore
+    return semaphore
+
+def get_llm_client() -> AsyncOpenAI:
+    """Return a loop-local AsyncOpenAI client for Celery's per-task event loops."""
+    loop = asyncio.get_running_loop()
+    loop_key = id(loop)
+    client = _LLM_CLIENTS.get(loop_key)
+    if client is None:
+        client = AsyncOpenAI(
+            base_url=VLLM_URL,
+            api_key="x",
+            timeout=VLLM_TIMEOUT_SECONDS,
+            max_retries=VLLM_MAX_RETRIES,
+        )
+        _LLM_CLIENTS[loop_key] = client
+    return client
+
 async def llm(prompt: str, temperature: float = 0.7, max_tokens: int = 1024) -> str:
-    resp = await client_llm.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": prompt}
-        ],
-        temperature=temperature,
-        max_tokens=max_tokens,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-    )
+    async with get_llm_semaphore():
+        resp = await get_llm_client().chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": prompt}
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}}
+        )
     return resp.choices[0].message.content
 
 def parse_json(text: str) -> dict:
@@ -359,7 +403,8 @@ async def run_pipeline():
 
     print(
         f"Generating {len(all_tasks)} MCQs async "
-        f"(max_concurrent={MAX_CONCURRENT_QUESTIONS})...\n"
+        f"(question_concurrency={MAX_CONCURRENT_QUESTIONS}, "
+        f"llm_concurrency={MAX_CONCURRENT_LLM_REQUESTS})...\n"
     )
     results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
@@ -463,8 +508,15 @@ async def run_pipeline_with_topics(
         async with semaphore:
             return await tracked_generate(topic_cfg, seq)
 
-    emit_progress(25, f"generating concurrency={max_concurrent_questions}",
-                  current_question=0, total_questions=total_questions)
+    emit_progress(
+        25,
+        f"generating question_concurrency={max_concurrent_questions} "
+        f"llm_concurrency={MAX_CONCURRENT_LLM_REQUESTS}",
+        current_question=0,
+        total_questions=total_questions,
+        question_concurrency=max_concurrent_questions,
+        llm_concurrency=MAX_CONCURRENT_LLM_REQUESTS,
+    )
 
     all_tasks = [bounded_tracked_generate(topic_cfg, seq) for topic_cfg, seq in task_specs]
     results = await asyncio.gather(*all_tasks, return_exceptions=True) if all_tasks else []
@@ -489,4 +541,8 @@ async def run_pipeline_with_topics(
         "failed": len(all_tasks) - len(accepted),
         "output_file": str(out_file),
         "mcqs": accepted,
+        "question_concurrency": max_concurrent_questions,
+        "llm_concurrency": MAX_CONCURRENT_LLM_REQUESTS,
+        "vllm_url": VLLM_URL,
+        "vllm_model": MODEL,
     }

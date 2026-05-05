@@ -13,6 +13,9 @@ interface QueueStatus {
   active_jobs?: number
   queued_jobs?: number
   estimated_wait_min: number
+  generation_concurrency?: number
+  llm_concurrency?: number
+  vllm_max_num_seqs?: number
 }
 
 export default function DashboardPage() {
@@ -33,6 +36,9 @@ export default function DashboardPage() {
     api.get("/queue/status").then(({ data }) => setQueueStatus(data)).catch(() => {})
   }, [router, setAuth, user])
 
+  const pendingJobs = queueStatus?.pending_jobs ?? 0
+  const isQueueIdle = queueStatus?.status === "idle"
+
   return (
     <div className="space-y-6">
       <div>
@@ -52,12 +58,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${queueStatus?.status === "idle" ? "bg-green-500" : "bg-yellow-500"}`} />
+              <div className={`w-3 h-3 rounded-full ${isQueueIdle ? "bg-green-500" : "bg-yellow-500"}`} />
               <span className="text-2xl font-bold">
-                {queueStatus?.status === "idle" ? "Sẵn sàng" : `${queueStatus?.pending_jobs} job trong hệ thống`}
+                {isQueueIdle ? "Sẵn sàng" : `${pendingJobs} job trong hệ thống`}
               </span>
             </div>
-            {queueStatus?.pending_jobs > 0 && (
+            {pendingJobs > 0 && queueStatus && (
               <p className="text-sm text-slate-500 mt-1">
                 Đang chạy {queueStatus.active_jobs || 0}, đang chờ {queueStatus.queued_jobs || 0} • Ước tính ~{queueStatus.estimated_wait_min} phút
               </p>

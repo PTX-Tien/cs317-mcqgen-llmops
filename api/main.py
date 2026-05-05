@@ -1,7 +1,7 @@
 """
 api/main.py — MCQGen FastAPI server (Production-grade)
 """
-import asyncio, json, os, sys
+import asyncio, json, math, os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -94,7 +94,15 @@ QUEUE_MIN_PER_JOB = 10
 
 def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") -> int:
     minutes_per_question = GENERATION_MIN_PER_QUESTION_BY_MODE.get(retrieval_mode, 8)
-    runtime = max(1, n_questions * minutes_per_question)
+    effective_concurrency = max(
+        1,
+        min(
+            settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+            settings.MCQGEN_LLM_MAX_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+        ),
+    )
+    runtime = max(1, math.ceil((n_questions * minutes_per_question) / effective_concurrency))
     return runtime
 
 def _count_inspected_tasks(tasks_by_worker) -> int:
@@ -179,6 +187,9 @@ def queue_status(user: dict = Depends(get_current_user)):
         "estimated_wait_min": depth * QUEUE_MIN_PER_JOB,
         "status":             "busy" if depth > 0 else "idle",
         "inspect_ok":         queue["inspect_ok"],
+        "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
     }
 
 @app.post("/admin/warmup")
@@ -247,6 +258,9 @@ def generate(
         "queue_wait_min":     queue_wait_min,
         "n_questions":        n_q,
         "retrieval_mode":     retrieval_mode,
+        "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency":    settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs":  settings.VLLM_MAX_NUM_SEQS,
         "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
     }
 
@@ -273,6 +287,9 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
             "step":             meta.get("step", ""),
             "current_question": meta.get("current_question", 0),
             "total_questions":  meta.get("total_questions", 0),
+            "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+            "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+            "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
         }
     elif result.state == "SUCCESS":
         data = result.result or {}
@@ -282,6 +299,9 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
             "progress": 100,
             "accepted": data.get("accepted", 0),
             "failed":   data.get("failed", 0),
+            "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+            "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+            "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
         }
         if data.get("type") == "warmup":
             payload.update({
@@ -330,7 +350,14 @@ def get_results(
         exam.quality_avg = sum(m.get("evaluation",{}).get("quality_score",0) for m in mcqs) / len(mcqs) if mcqs else 0
         session.commit()
 
-    return {"task_id": task_id, "accepted": len(mcqs), "mcqs": mcqs}
+    return {
+        "task_id": task_id,
+        "accepted": len(mcqs),
+        "mcqs": mcqs,
+        "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+        "llm_concurrency": data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+    }
 
 @app.delete("/cancel/{task_id}")
 def cancel_job(task_id: str, user: dict = Depends(get_current_user)):
@@ -404,6 +431,9 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "step":             meta.get("step", ""),
                     "current_question": meta.get("current_question", 0),
                     "total_questions":  meta.get("total_questions", 0),
+                    "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+                    "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+                    "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
                 })
             elif result.state == "SUCCESS":
                 data = result.result or {}
@@ -411,6 +441,9 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "state":    "success",
                     "progress": 100,
                     "accepted": data.get("accepted", 0),
+                    "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+                    "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+                    "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
                 })
                 break
             elif result.state == "FAILURE":

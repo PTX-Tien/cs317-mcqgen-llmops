@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCQGen vLLM Demo Console</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">V</div>
+          <div>
+            <div class="brand-title">MCQGen vLLM</div>
+            <div class="brand-subtitle">Demo console</div>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-exp="exp02">
+            <span class="nav-icon">02</span>
+            LLM Load
+          </button>
+          <button class="nav-item" data-exp="exp03">
+            <span class="nav-icon">03</span>
+            Pipeline
+          </button>
+          <button class="nav-item" data-exp="exp07">
+            <span class="nav-icon">07</span>
+            Baseline
+          </button>
+        </nav>
+
+        <section class="status-card">
+          <div class="section-label">vLLM Server</div>
+          <div class="status-row">
+            <span id="ready-dot" class="dot"></span>
+            <span id="ready-text">Checking</span>
+          </div>
+          <dl class="status-grid">
+            <div>
+              <dt>Model</dt>
+              <dd id="status-model">...</dd>
+            </div>
+            <div>
+              <dt>Running</dt>
+              <dd id="status-running">0</dd>
+            </div>
+            <div>
+              <dt>Waiting</dt>
+              <dd id="status-waiting">0</dd>
+            </div>
+            <div>
+              <dt>KV cache</dt>
+              <dd id="status-cache">0%</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1>vLLM Effectiveness Demo</h1>
+            <p>Run Exp02, Exp03, and Exp07 with realtime logs and visual reports.</p>
+          </div>
+          <div class="top-actions">
+            <a class="ghost-link" href="http://localhost:3001" target="_blank" rel="noreferrer">Grafana</a>
+            <a class="ghost-link" href="http://localhost:8000/metrics" target="_blank" rel="noreferrer">Metrics</a>
+          </div>
+        </header>
+
+        <section class="experiment-panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-label">Selected Experiment</div>
+              <h2 id="exp-title">Exp02 - LLM-only concurrency sweep</h2>
+              <p id="exp-description">Đo throughput/latency của vLLM khi tăng concurrency.</p>
+            </div>
+            <button id="run-btn" class="primary-button" type="button">
+              <span class="button-icon">Run</span>
+              Start
+            </button>
+          </div>
+
+          <form id="config-form" class="config-grid"></form>
+
+          <div class="command-box">
+            <div class="section-label">Command Profile</div>
+            <code id="command-preview">Ready</code>
+          </div>
+        </section>
+
+        <section class="workspace-grid">
+          <div class="log-card">
+            <div class="card-header">
+              <div>
+                <div class="section-label">Realtime Stream</div>
+                <h3>Experiment Log</h3>
+              </div>
+              <button id="clear-log" class="icon-button" type="button">Clear</button>
+            </div>
+            <pre id="log-output" class="log-output">No job running.</pre>
+          </div>
+
+          <div class="artifact-card">
+            <div class="card-header">
+              <div>
+                <div class="section-label">Latest Result</div>
+                <h3>Visual Report</h3>
+              </div>
+              <button id="refresh-artifacts" class="icon-button" type="button">Refresh</button>
+            </div>
+            <div id="artifact-meta" class="artifact-meta">No artifact loaded.</div>
+            <div class="preview-frame">
+              <img id="svg-preview" alt="Experiment visualization" />
+            </div>
+          </div>
+        </section>
+
+        <section class="report-card">
+          <div class="card-header">
+            <div>
+              <div class="section-label">Markdown Summary</div>
+              <h3>Report</h3>
+            </div>
+          </div>
+          <pre id="markdown-report" class="markdown-report">Run or refresh an experiment to load the report.</pre>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -133,7 +133,7 @@ export default function QuizPage() {
           <div>
             <Label>Upload đề thi JSON</Label>
             <div className="mt-1 border-2 border-dashed border-slate-200 rounded-lg p-4 text-center">
-              <input type="file" accept=".json" onChange={handleUpload} className="hidden" id="file-upload" />
+              <input type="file" accept=".json" onChange={handleUpload} className="hidden" id="file-upload" suppressHydrationWarning />
               <label htmlFor="file-upload" className="cursor-pointer">
                 <div className="text-2xl mb-1">📁</div>
                 <p className="text-sm text-slate-500">
@@ -208,7 +208,7 @@ export default function QuizPage() {
           {/* Options */}
           <div className="space-y-2">
             {Object.entries(mcq.options).map(([key, value]) => (
-              <button key={key} onClick={() => selectAnswer(key)}
+              <button key={key} onClick={() => selectAnswer(key)} suppressHydrationWarning
                 className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm font-medium ${
                   answers[currentQ] === key
                     ? "border-slate-800 bg-slate-800 text-white shadow-md"
@@ -228,7 +228,7 @@ export default function QuizPage() {
               disabled={currentQ === 0}>← Trước</Button>
             <div className="flex gap-1 overflow-x-auto max-w-xs">
               {mcqs.map((_, i) => (
-                <button key={i} onClick={() => setCurrentQ(i)}
+                <button key={i} onClick={() => setCurrentQ(i)} suppressHydrationWarning
                   className={`w-8 h-8 rounded text-xs font-medium shrink-0 transition-all ${
                     i === currentQ ? "bg-slate-800 text-white" :
                     answers[i] ? "bg-green-100 text-green-700 border border-green-300" :

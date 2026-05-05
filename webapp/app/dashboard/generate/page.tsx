@@ -196,6 +196,9 @@ export default function GeneratePage() {
         estimatedRuntime: data.estimated_runtime_min ?? localEstimatedRuntime,
         jobsAhead: data.jobs_ahead ?? Math.max(0, data.queue_position - 1),
         taskId: data.task_id,
+        questionConcurrency: data.generation_concurrency,
+        llmConcurrency: data.llm_concurrency,
+        vllmMaxNumSeqs: data.vllm_max_num_seqs,
       })
       toast.success(`Job submitted! Position #${data.queue_position}`)
       startWebSocket(data.task_id)
@@ -213,7 +216,17 @@ export default function GeneratePage() {
     ws.onmessage = async (e) => {
       const msg = JSON.parse(e.data)
       if (msg.state === "running") {
-        setGenState({ status: "running", progress: msg.progress, step: msg.step || "Generating...", currentQ: msg.current_question || 0, totalQ: msg.total_questions || totalQ, taskId })
+        setGenState({
+          status: "running",
+          progress: msg.progress,
+          step: msg.step || "Generating...",
+          currentQ: msg.current_question || 0,
+          totalQ: msg.total_questions || totalQ,
+          taskId,
+          questionConcurrency: msg.question_concurrency,
+          llmConcurrency: msg.llm_concurrency,
+          vllmMaxNumSeqs: msg.vllm_max_num_seqs,
+        })
       } else if (msg.state === "success") {
         try {
           const { data } = await api.get(`/results/${taskId}`)
@@ -237,7 +250,17 @@ export default function GeneratePage() {
       try {
         const { data } = await api.get(`/status/${taskId}`)
         if (data.state === "running") {
-          setGenState({ status: "running", progress: data.progress, step: data.step || "Processing...", currentQ: data.current_question || 0, totalQ: data.total_questions || totalQ, taskId })
+          setGenState({
+            status: "running",
+            progress: data.progress,
+            step: data.step || "Processing...",
+            currentQ: data.current_question || 0,
+            totalQ: data.total_questions || totalQ,
+            taskId,
+            questionConcurrency: data.question_concurrency,
+            llmConcurrency: data.llm_concurrency,
+            vllmMaxNumSeqs: data.vllm_max_num_seqs,
+          })
         } else if (data.state === "success") {
           clearInterval(interval)
           const res = await api.get(`/results/${taskId}`)
@@ -363,6 +386,11 @@ export default function GeneratePage() {
                     Ước tính tổng ~{genState.estimatedWait} phút
                     {genState.queueWait > 0 && ` (queue ~${genState.queueWait} phút, chạy ~${genState.estimatedRuntime} phút)`}
                   </p>
+                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
+                    <p className="text-xs text-slate-500">
+                      vLLM: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
+                    </p>
+                  )}
                 </div>
               )}
               {genState.status === "running" && (
@@ -371,6 +399,11 @@ export default function GeneratePage() {
                     <span className="font-semibold text-sm">{genState.step}</span>
                     <span className="text-sm text-slate-500">Câu {genState.currentQ}/{genState.totalQ}</span>
                   </div>
+                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
+                    <div className="text-xs text-slate-500">
+                      vLLM batching: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
+                    </div>
+                  )}
                   <Progress value={genState.progress} className="h-3" />
                   {/* Animated stepper */}
                   <div className="relative">

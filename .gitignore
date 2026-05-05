@@ -37,4 +37,4 @@ test_output.json
 vllm_server.log
 .env
 
-vllm_demo_plan_mcqgen.md
+results

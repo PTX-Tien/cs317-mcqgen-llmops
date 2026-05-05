@@ -14,8 +14,9 @@ export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 # Qwen2.5-7B-Instruct full precision is larger than one RTX 2080 Ti.
-# Use TP=4 on non-task GPUs so vLLM stays GPU-only and GPUs 4,7 remain for workers.
-export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,6}
+# Use TP=4 so vLLM stays GPU-only. Override these two variables before running
+# this script if you need a strict GPU split between vLLM and RAG workers.
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
 export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
@@ -23,11 +24,14 @@ export HF_HUB_OFFLINE=0
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
 # TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
 export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
-export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
-export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-1}
-export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.40}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
 export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
-export MCQGEN_MAX_CONCURRENT_QUESTIONS=${MCQGEN_MAX_CONCURRENT_QUESTIONS:-2}
+export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
+export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
+export MCQGEN_MAX_CONCURRENT_QUESTIONS=${MCQGEN_MAX_CONCURRENT_QUESTIONS:-4}
+export MCQGEN_LLM_MAX_CONCURRENCY=${MCQGEN_LLM_MAX_CONCURRENCY:-$VLLM_MAX_NUM_SEQS}
 VLLM_CPU_OFFLOAD_ARGS=""
 if [ "$VLLM_CPU_OFFLOAD_GB" != "0" ] && [ "$VLLM_CPU_OFFLOAD_GB" != "0.0" ]; then
     VLLM_CPU_OFFLOAD_ARGS="--cpu-offload-gb $VLLM_CPU_OFFLOAD_GB"
@@ -71,6 +75,8 @@ start_bg() {
 
 log "════════════════════════════════════"
 log "🚀 MCQGen System Starting"
+log "vLLM GPUs=$VLLM_CUDA_VISIBLE_DEVICES | task GPUs=$TASK_CUDA_VISIBLE_DEVICES"
+log "vLLM max_model_len=$VLLM_MAX_MODEL_LEN max_num_seqs=$VLLM_MAX_NUM_SEQS | question_concurrency=$MCQGEN_MAX_CONCURRENT_QUESTIONS llm_concurrency=$MCQGEN_LLM_MAX_CONCURRENCY"
 log "════════════════════════════════════"
 
 # ── STEP 1: Redis (synchronous — phải ready trước) ───────────────
@@ -124,7 +130,7 @@ log "[3/5] Celery worker..."
 pkill -f "celery.*worker" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker \
-    --loglevel=info --concurrency=1 \
+    --loglevel=info --concurrency=1 --prefetch-multiplier=1 -Ofair \
     -n worker1@%h \
     > $LOG_DIR/celery.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/celery.log"
