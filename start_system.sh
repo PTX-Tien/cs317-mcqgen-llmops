@@ -1,9 +1,11 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/tienptx/llmops/llmops_v2
+PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
+mkdir -p $PROJECT/redis_data
+mkdir -p $PROJECT/tmp
 
 source /mmlab_students/storageStudents/nguyenvd/anaconda3/etc/profile.d/conda.sh
 conda activate mcqgen_v2 2>/dev/null
@@ -11,9 +13,29 @@ conda activate mcqgen_v2 2>/dev/null
 export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-export CUDA_VISIBLE_DEVICES=7
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/tienptx/.cache/huggingface
+# Qwen2.5-7B-Instruct full precision is larger than one RTX 2080 Ti.
+# Use TP=4 so vLLM stays GPU-only. Override these two variables before running
+# this script if you need a strict GPU split between vLLM and RAG workers.
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
+export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
+
+# Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
+# TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
+export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
+export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
+export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
+export MCQGEN_MAX_CONCURRENT_QUESTIONS=${MCQGEN_MAX_CONCURRENT_QUESTIONS:-4}
+export MCQGEN_LLM_MAX_CONCURRENCY=${MCQGEN_LLM_MAX_CONCURRENCY:-$VLLM_MAX_NUM_SEQS}
+VLLM_CPU_OFFLOAD_ARGS=""
+if [ "$VLLM_CPU_OFFLOAD_GB" != "0" ] && [ "$VLLM_CPU_OFFLOAD_GB" != "0.0" ]; then
+    VLLM_CPU_OFFLOAD_ARGS="--cpu-offload-gb $VLLM_CPU_OFFLOAD_GB"
+fi
 
 cd $PROJECT
 
@@ -53,6 +75,8 @@ start_bg() {
 
 log "════════════════════════════════════"
 log "🚀 MCQGen System Starting"
+log "vLLM GPUs=$VLLM_CUDA_VISIBLE_DEVICES | task GPUs=$TASK_CUDA_VISIBLE_DEVICES"
+log "vLLM max_model_len=$VLLM_MAX_MODEL_LEN max_num_seqs=$VLLM_MAX_NUM_SEQS | question_concurrency=$MCQGEN_MAX_CONCURRENT_QUESTIONS llm_concurrency=$MCQGEN_LLM_MAX_CONCURRENCY"
 log "════════════════════════════════════"
 
 # ── STEP 1: Redis (synchronous — phải ready trước) ───────────────
@@ -73,19 +97,22 @@ log "[2/5] Starting vLLM, Phoenix, Streamlit in parallel..."
 # vLLM
 start_bg "vLLM" \
     "curl -s http://localhost:8000/health" \
-    "vllm serve models/Qwen3-8B-AWQ \
-        --dtype half --quantization awq \
-        --max-model-len 8192 \
-        --gpu-memory-utilization 0.90 \
+    "env CUDA_VISIBLE_DEVICES=$VLLM_CUDA_VISIBLE_DEVICES vllm serve models/Qwen2.5-7B-Instruct \
+        --dtype half \
+        --tensor-parallel-size $VLLM_TENSOR_PARALLEL_SIZE \
+        --max-model-len $VLLM_MAX_MODEL_LEN \
+        --gpu-memory-utilization $VLLM_GPU_MEMORY_UTILIZATION \
+        $VLLM_CPU_OFFLOAD_ARGS \
         --enforce-eager --enable-prefix-caching \
-        --max-num-seqs 4 --port 8000 --host 0.0.0.0 \
+        --disable-log-requests \
+        --max-num-seqs $VLLM_MAX_NUM_SEQS --port 8000 --host 0.0.0.0 \
         --served-model-name mcqgen" \
     "$LOG_DIR/vllm.log"
 
 # Phoenix
 start_bg "Phoenix" \
     "curl -s http://localhost:6006/healthz" \
-    "python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
+    "env TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
     "$LOG_DIR/phoenix.log"
 
 # Streamlit
@@ -93,7 +120,7 @@ pkill -f "streamlit" 2>/dev/null || true
 sleep 1
 start_bg "Streamlit" \
     "curl -s http://localhost:8501" \
-    "streamlit run streamlit_app.py \
+    "env CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES streamlit run streamlit_app.py \
         --server.port 8501 --server.address 0.0.0.0 \
         --server.headless true" \
     "$LOG_DIR/streamlit.log"
@@ -102,8 +129,8 @@ start_bg "Streamlit" \
 log "[3/5] Celery worker..."
 pkill -f "celery.*worker" 2>/dev/null || true
 sleep 2
-nohup celery -A api.tasks worker \
-    --loglevel=info --concurrency=1 \
+CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker \
+    --loglevel=info --concurrency=1 --prefetch-multiplier=1 -Ofair \
     -n worker1@%h \
     > $LOG_DIR/celery.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/celery.log"
@@ -112,7 +139,7 @@ log "   PID=$! | log=$LOG_DIR/celery.log"
 log "[4/5] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
-nohup uvicorn api.main:app \
+CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
     --host 0.0.0.0 --port 7860 \
     > $LOG_DIR/fastapi.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/fastapi.log"

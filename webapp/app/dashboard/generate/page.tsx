@@ -1,9 +1,8 @@
 "use client"
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuthStore } from "@/lib/store"
 import { api, WS_URL } from "@/lib/api"
-import { TopicConfig, MCQ, GenerationState } from "@/types"
+import { TopicConfig, MCQ, GenerationState, RetrievalMode } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -48,6 +47,32 @@ const PIPELINE_STEPS = [
   { label: "Assemble", icon: "📝" },
   { label: "Evaluate", icon: "✅" },
 ]
+const EST_MIN_PER_QUESTION_BY_MODE: Record<RetrievalMode, number> = {
+  fast: 7,
+  auto: 8,
+  quality: 10,
+}
+const RETRIEVAL_MODES: Array<{ value: RetrievalMode; label: string }> = [
+  { value: "fast", label: "Nhanh" },
+  { value: "auto", label: "Cân bằng" },
+  { value: "quality", label: "Chất lượng cao" },
+]
+
+function getApiErrorDetail(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("response" in error)) {
+    return undefined
+  }
+  const response = (error as { response?: { data?: { detail?: string } } }).response
+  return response?.data?.detail
+}
+
+function nowMs(): number {
+  return performance.now()
+}
+
+function elapsedSeconds(startMs: number): number {
+  return (nowMs() - startMs) / 1000
+}
 
 // ── Topic Row component ──────────────────────────────────────────
 function TopicRow({ index, topic, onChange, onRemove }: {
@@ -126,11 +151,11 @@ function TopicRow({ index, topic, onChange, onRemove }: {
 // ── Main page ────────────────────────────────────────────────────
 export default function GeneratePage() {
   const router = useRouter()
-  const { user } = useAuthStore()
   const [examName, setExamName] = useState("exam_01")
   const [topics, setTopics] = useState<TopicConfig[]>([
     { topic_id: "t1", chapter_id: "ch07b", topic: "Decision Trees", difficulty: "G2", n: 3 }
   ])
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto")
   const [genState, setGenState] = useState<GenerationState>({ status: "idle" })
   const [mcqs, setMcqs] = useState<MCQ[]>([])
   const wsRef = useRef<WebSocket | null>(null)
@@ -138,10 +163,14 @@ export default function GeneratePage() {
 
   useEffect(() => {
     if (!localStorage.getItem("access_token")) router.push("/login")
-  }, [])
+  }, [router])
 
   const totalQ = topics.reduce((s, t) => s + t.n, 0)
   const validTopics = topics.filter((t) => t.chapter_id && t.topic.trim())
+  const localEstimatedRuntime = Math.max(
+    1,
+    Math.ceil(totalQ * EST_MIN_PER_QUESTION_BY_MODE[retrievalMode])
+  )
 
   const addTopic = () => {
     if (topics.length >= 5) return
@@ -153,32 +182,56 @@ export default function GeneratePage() {
     setGenState({ status: "submitting" })
     setMcqs([])
     try {
-      const { data } = await api.post("/generate", { topics: validTopics, output_name: examName })
+      const { data } = await api.post("/generate", {
+        topics: validTopics,
+        output_name: examName,
+        retrieval_mode: retrievalMode,
+      })
       taskIdRef.current = data.task_id
-      setGenState({ status: "queued", position: data.queue_position, estimatedWait: data.estimated_wait_min, taskId: data.task_id })
+      setGenState({
+        status: "queued",
+        position: data.queue_position,
+        estimatedWait: data.estimated_total_min ?? data.estimated_wait_min,
+        queueWait: data.queue_wait_min ?? 0,
+        estimatedRuntime: data.estimated_runtime_min ?? localEstimatedRuntime,
+        jobsAhead: data.jobs_ahead ?? Math.max(0, data.queue_position - 1),
+        taskId: data.task_id,
+        questionConcurrency: data.generation_concurrency,
+        llmConcurrency: data.llm_concurrency,
+        vllmMaxNumSeqs: data.vllm_max_num_seqs,
+      })
       toast.success(`Job submitted! Position #${data.queue_position}`)
       startWebSocket(data.task_id)
-    } catch (e: any) {
-      setGenState({ status: "failed", error: e.response?.data?.detail || "Lỗi kết nối API" })
+    } catch (e: unknown) {
+      setGenState({ status: "failed", error: getApiErrorDetail(e) || "Lỗi kết nối API" })
       toast.error("Không thể submit job")
     }
   }
 
   const startWebSocket = (taskId: string) => {
-    const token = localStorage.getItem("access_token")
     const ws = new WebSocket(`${WS_URL}/ws/${taskId}`)
     wsRef.current = ws
-    const start = Date.now()
+    const start = nowMs()
 
     ws.onmessage = async (e) => {
       const msg = JSON.parse(e.data)
       if (msg.state === "running") {
-        setGenState({ status: "running", progress: msg.progress, step: msg.step || "Generating...", currentQ: msg.current_question || 0, totalQ: msg.total_questions || totalQ, taskId })
+        setGenState({
+          status: "running",
+          progress: msg.progress,
+          step: msg.step || "Generating...",
+          currentQ: msg.current_question || 0,
+          totalQ: msg.total_questions || totalQ,
+          taskId,
+          questionConcurrency: msg.question_concurrency,
+          llmConcurrency: msg.llm_concurrency,
+          vllmMaxNumSeqs: msg.vllm_max_num_seqs,
+        })
       } else if (msg.state === "success") {
         try {
           const { data } = await api.get(`/results/${taskId}`)
           setMcqs(data.mcqs || [])
-          setGenState({ status: "success", mcqs: data.mcqs, elapsed: (Date.now() - start) / 1000, taskId })
+          setGenState({ status: "success", mcqs: data.mcqs, elapsed: elapsedSeconds(start), taskId })
           toast.success(`✅ ${data.accepted} câu hỏi đã sinh thành công!`)
         } catch { setGenState({ status: "failed", error: "Lỗi lấy kết quả" }) }
         ws.close()
@@ -197,12 +250,22 @@ export default function GeneratePage() {
       try {
         const { data } = await api.get(`/status/${taskId}`)
         if (data.state === "running") {
-          setGenState({ status: "running", progress: data.progress, step: data.step || "Processing...", currentQ: data.current_question || 0, totalQ: data.total_questions || totalQ, taskId })
+          setGenState({
+            status: "running",
+            progress: data.progress,
+            step: data.step || "Processing...",
+            currentQ: data.current_question || 0,
+            totalQ: data.total_questions || totalQ,
+            taskId,
+            questionConcurrency: data.question_concurrency,
+            llmConcurrency: data.llm_concurrency,
+            vllmMaxNumSeqs: data.vllm_max_num_seqs,
+          })
         } else if (data.state === "success") {
           clearInterval(interval)
           const res = await api.get(`/results/${taskId}`)
           setMcqs(res.data.mcqs)
-          setGenState({ status: "success", mcqs: res.data.mcqs, elapsed: (Date.now() - start) / 1000, taskId })
+          setGenState({ status: "success", mcqs: res.data.mcqs, elapsed: elapsedSeconds(start), taskId })
           toast.success(`✅ ${res.data.accepted} câu hỏi đã sinh thành công!`)
         } else if (data.state === "failed") {
           clearInterval(interval)
@@ -249,9 +312,22 @@ export default function GeneratePage() {
                 <Label>Tên đề thi</Label>
                 <Input value={examName} onChange={(e) => setExamName(e.target.value)} className="mt-1" placeholder="exam_01" />
               </div>
+              <div>
+                <Label>Chế độ RAG</Label>
+                <Select value={retrievalMode} onValueChange={(v) => setRetrievalMode((v ?? "auto") as RetrievalMode)}>
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RETRIEVAL_MODES.map((mode) => (
+                      <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="text-sm text-slate-500">
                 <span className="font-medium">{validTopics.length} topic</span> • <span className="font-medium">{totalQ} câu hỏi</span>
-                <br /><span className="text-xs">Ước tính ~{Math.ceil(totalQ * 0.5)} phút</span>
+                <br /><span className="text-xs">Ước tính ~{localEstimatedRuntime} phút</span>
               </div>
             </CardContent>
           </Card>
@@ -303,7 +379,18 @@ export default function GeneratePage() {
                 <div className="text-center space-y-2">
                   <div className="animate-spin w-10 h-10 border-4 border-slate-200 border-t-slate-700 rounded-full mx-auto" />
                   <p className="font-semibold">Đang chờ trong queue</p>
-                  <p className="text-sm text-slate-500">Vị trí #{genState.position} • Ước tính ~{genState.estimatedWait} phút</p>
+                  <p className="text-sm text-slate-500">
+                    Vị trí #{genState.position} • {genState.jobsAhead > 0 ? `${genState.jobsAhead} job phía trước` : "đang chờ worker nhận job"}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Ước tính tổng ~{genState.estimatedWait} phút
+                    {genState.queueWait > 0 && ` (queue ~${genState.queueWait} phút, chạy ~${genState.estimatedRuntime} phút)`}
+                  </p>
+                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
+                    <p className="text-xs text-slate-500">
+                      vLLM: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
+                    </p>
+                  )}
                 </div>
               )}
               {genState.status === "running" && (
@@ -312,6 +399,11 @@ export default function GeneratePage() {
                     <span className="font-semibold text-sm">{genState.step}</span>
                     <span className="text-sm text-slate-500">Câu {genState.currentQ}/{genState.totalQ}</span>
                   </div>
+                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
+                    <div className="text-xs text-slate-500">
+                      vLLM batching: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
+                    </div>
+                  )}
                   <Progress value={genState.progress} className="h-3" />
                   {/* Animated stepper */}
                   <div className="relative">

@@ -3,6 +3,7 @@ advanced_retrieval.py — HyDE + Sentence-Window + Cross-Encoder Reranker
 Thay thế retrieve_context() trong pipeline_mcq.py
 """
 import asyncio
+import os
 from pathlib import Path
 from openai import AsyncOpenAI
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -10,8 +11,9 @@ import chromadb
 
 # ── Config ────────────────────────────────────────────────────────
 INDEX_DIR  = Path("data/indexes")
-VLLM_URL   = "http://localhost:8000/v1"
-MODEL      = "mcqgen"
+VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")
+MODEL      = os.getenv("VLLM_MODEL", "mcqgen")
+RETRIEVAL_MODES = {"fast", "auto", "quality"}
 
 # ── Models (load 1 lần) ───────────────────────────────────────────
 print("Loading embedding + reranker models...")
@@ -94,15 +96,26 @@ def rerank(query: str, docs: list[str], top_k: int = 5) -> list[int]:
 
 
 # ── Step 5: Format context ────────────────────────────────────────
-def format_context(docs: list[str], metas: list[dict], selected_indices: list[int]) -> str:
+def format_context(
+    docs: list[str],
+    metas: list[dict],
+    selected_indices: list[int],
+    max_chars_per_doc: int = 1500,
+    max_total_chars: int = 4500,
+) -> str:
     blocks = []
     for rank, idx in enumerate(selected_indices, 1):
         if idx >= len(docs):
             continue
+        used_chars = sum(len(block) for block in blocks)
+        remaining_chars = max_total_chars - used_chars
+        if remaining_chars <= 0:
+            break
         doc  = docs[idx]
         meta = metas[idx]
         src  = f"[{meta.get('source_type','?')}|{meta.get('source_file','?')}]"
-        blocks.append(f"--- Context {rank} {src} ---\n{doc[:1500]}")
+        excerpt = doc[:min(max_chars_per_doc, remaining_chars)]
+        blocks.append(f"--- Context {rank} {src} ---\n{excerpt}")
     return "\n\n".join(blocks)
 
 
@@ -323,6 +336,23 @@ except Exception:
     print("  ⚠️  SW collection not found — fallback to standard")
 
 
+def warmup_retriever() -> dict:
+    """Force-load RAG models and run tiny inference paths inside the worker."""
+    collection_count = collection.count()
+    sw_count = sw_collection.count() if SW_AVAILABLE and sw_collection else 0
+    _ = emb_model.encode(["Decision Trees"])[0]
+    _ = reranker.predict([("Decision Trees", "Decision Tree")])
+    info = {
+        "collection_count": collection_count,
+        "sw_available": SW_AVAILABLE,
+        "sw_collection_count": sw_count,
+        "embedding_model": "BAAI/bge-m3",
+        "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    }
+    print(f"✅ RAG retriever warmed up: {info}")
+    return info
+
+
 def retrieve_sw_candidates(
     embedding: list[float],
     chapter_id: str,
@@ -350,7 +380,8 @@ async def adaptive_retrieve_sw(
     topic: str,
     chapter_id: str,
     naive_threshold: float = 0.25,
-    top_k_final: int = 5
+    top_k_final: int = 5,
+    mode: str = "auto",
 ) -> tuple[str, dict]:
     """
     Adaptive RAG + Sentence-Window:
@@ -359,16 +390,34 @@ async def adaptive_retrieve_sw(
     """
     import numpy as np
     debug = {}
+    mode = (mode or os.getenv("DEFAULT_RETRIEVAL_MODE", "auto")).lower()
+    if mode not in RETRIEVAL_MODES:
+        mode = "auto"
+    if mode == "fast":
+        final_k = min(top_k_final, 2)
+        max_chars_per_doc = 800
+        max_total_chars = 1600
+    elif mode == "quality":
+        final_k = top_k_final
+        max_chars_per_doc = 1100
+        max_total_chars = 3200
+    else:
+        final_k = min(top_k_final, 4)
+        max_chars_per_doc = 900
+        max_total_chars = 2600
+    candidate_k = 8 if mode == "fast" else 12
 
     # Step 1: Naive check với SW collection
     emb_naive = emb_model.encode([topic])[0].tolist()
-    docs, metas, dists = retrieve_sw_candidates(emb_naive, chapter_id, top_k=12)
+    docs, metas, dists = retrieve_sw_candidates(emb_naive, chapter_id, top_k=candidate_k)
     best_naive = 1 - min(dists) if dists else 0.0
     debug["naive_best_score"] = round(best_naive, 3)
     debug["collection"] = "sentence_window" if SW_AVAILABLE else "standard"
+    debug["mode"] = mode
 
-    if best_naive >= naive_threshold:
-        debug["strategy"] = "sw_naive+rerank"
+    should_use_hyde = mode == "quality" or (mode == "auto" and best_naive < naive_threshold)
+    if not should_use_hyde:
+        debug["strategy"] = "sw_fast+rerank" if mode == "fast" else "sw_naive+rerank"
         debug["hyde_query"] = None
     else:
         # HyDE + ensemble
@@ -392,12 +441,18 @@ async def adaptive_retrieve_sw(
         docs, metas, dists = docs2, metas2, dists2
 
     # Rerank — query = topic (window_text đã đủ context)
-    selected_idx = rerank(topic, docs, top_k=top_k_final)
+    selected_idx = rerank(topic, docs, top_k=final_k)
     debug["top_scores_after_rerank"] = [
         round(1 - dists[i], 3) for i in selected_idx if i < len(dists)
     ]
 
-    context = format_context(docs, metas, selected_idx)
+    context = format_context(
+        docs,
+        metas,
+        selected_idx,
+        max_chars_per_doc=max_chars_per_doc,
+        max_total_chars=max_total_chars,
+    )
     return context, debug
 
 

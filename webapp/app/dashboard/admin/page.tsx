@@ -2,46 +2,142 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
-import { useAuthStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 
+interface QueueStatus {
+  status: "idle" | "busy"
+  pending_jobs: number
+  active_jobs?: number
+  queued_jobs?: number
+  estimated_wait_min: number
+}
+
+interface ExamSummary {
+  id: number
+  exam_name: string
+  created_by: string
+  n_questions?: number
+  status: string
+  quality_avg?: number | null
+  created_at: string
+}
+
+interface AdminStats {
+  total_exams: number
+  success_exams: number
+  total_questions: number
+  avg_quality: number
+  queue: QueueStatus
+}
+
+interface WarmupState {
+  status: "idle" | "running" | "success" | "failed"
+  progress: number
+  step: string
+  error?: string
+}
+
+interface WarmupStatusResponse {
+  state: string
+  progress?: number
+  step?: string
+  error?: string
+  ready?: boolean
+}
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
 export default function AdminPage() {
   const router    = useRouter()
-  const { user }  = useAuthStore()
-  const [stats, setStats]   = useState<any>(null)
-  const [exams, setExams]   = useState<any[]>([])
+  const [stats, setStats]   = useState<AdminStats | null>(null)
+  const [exams, setExams]   = useState<ExamSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [warmup, setWarmup] = useState<WarmupState>({
+    status: "idle",
+    progress: 0,
+    step: "",
+  })
 
   useEffect(() => {
     const token = localStorage.getItem("access_token")
     if (!token) { router.push("/login"); return }
-    loadData()
-  }, [])
 
-  const loadData = async () => {
-    try {
-      const [histRes, queueRes] = await Promise.all([
-        api.get("/history"),
-        api.get("/queue/status"),
-      ])
-      setExams(histRes.data.exams || [])
-      setStats({
-        total_exams:     histRes.data.exams?.length || 0,
-        success_exams:   histRes.data.exams?.filter((e: any) => e.status === "success").length || 0,
-        total_questions: histRes.data.exams?.reduce((s: number, e: any) => s + (e.n_questions || 0), 0) || 0,
-        avg_quality:     histRes.data.exams?.filter((e: any) => e.quality_avg)
-                           .reduce((s: number, e: any, _: any, arr: any[]) => s + e.quality_avg / arr.length, 0) || 0,
-        queue:           queueRes.data,
-      })
-    } catch { toast.error("Lỗi tải dữ liệu") }
-    finally { setLoading(false) }
-  }
+    let cancelled = false
+    const loadData = async () => {
+      try {
+        const [histRes, queueRes] = await Promise.all([
+          api.get("/history"),
+          api.get("/queue/status"),
+        ])
+        if (cancelled) return
+        const history: ExamSummary[] = histRes.data.exams || []
+        const qualityScores = history
+          .map((exam) => exam.quality_avg)
+          .filter((score): score is number => typeof score === "number")
+        setExams(history)
+        setStats({
+          total_exams:     history.length,
+          success_exams:   history.filter((exam) => exam.status === "success").length,
+          total_questions: history.reduce((sum, exam) => sum + (exam.n_questions || 0), 0),
+          avg_quality:     qualityScores.length
+            ? qualityScores.reduce((sum, score) => sum + score, 0) / qualityScores.length
+            : 0,
+          queue:           queueRes.data,
+        })
+      } catch {
+        if (!cancelled) toast.error("Lỗi tải dữ liệu")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadData()
+    return () => { cancelled = true }
+  }, [router])
 
   const formatDate = (s: string) =>
     new Date(s).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })
+
+  const handleWarmup = async () => {
+    setWarmup({ status: "running", progress: 0, step: "Đang gửi warmup job" })
+    try {
+      const { data } = await api.post("/admin/warmup")
+      const taskId = data.task_id
+      const deadline = Date.now() + 15 * 60 * 1000
+
+      while (Date.now() < deadline) {
+        await sleep(2000)
+        const statusRes = await api.get<WarmupStatusResponse>(`/status/${taskId}`)
+        const status = statusRes.data
+        if (status.state === "running") {
+          setWarmup({
+            status: "running",
+            progress: status.progress ?? 0,
+            step: status.step || "Đang warm up",
+          })
+        } else if (status.state === "success") {
+          setWarmup({
+            status: "success",
+            progress: 100,
+            step: status.ready ? "Hệ thống đã sẵn sàng" : "Warmup hoàn tất",
+          })
+          toast.success("Warmup hoàn tất")
+          return
+        } else if (status.state === "failed") {
+          throw new Error(status.error || "Warmup thất bại")
+        }
+      }
+      throw new Error("Warmup timeout")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Warmup thất bại"
+      setWarmup({ status: "failed", progress: 0, step: "", error: message })
+      toast.error(message)
+    }
+  }
 
   if (loading) return <div className="text-center py-20 text-slate-400">Đang tải...</div>
 
@@ -121,13 +217,35 @@ export default function AdminPage() {
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span>Jobs đang chờ</span>
+                  <span>Jobs trong hệ thống</span>
                   <strong>{stats?.queue?.pending_jobs}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Đang chạy</span>
+                  <strong>{stats?.queue?.active_jobs || 0}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Đang chờ</span>
+                  <strong>{stats?.queue?.queued_jobs || 0}</strong>
                 </div>
                 <div className="flex justify-between">
                   <span>Ước tính</span>
                   <strong>{stats?.queue?.estimated_wait_min} phút</strong>
                 </div>
+                <Button
+                  onClick={handleWarmup}
+                  disabled={warmup.status === "running"}
+                  className="w-full mt-3"
+                >
+                  Warm up hệ thống
+                </Button>
+                {warmup.status !== "idle" && (
+                  <div className="text-xs text-slate-500">
+                    {warmup.status === "running" && `${warmup.progress}% • ${warmup.step}`}
+                    {warmup.status === "success" && warmup.step}
+                    {warmup.status === "failed" && warmup.error}
+                  </div>
+                )}
               </CardContent>
             </Card>
             <Card>

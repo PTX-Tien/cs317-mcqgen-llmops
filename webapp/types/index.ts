@@ -20,6 +20,8 @@ export interface TopicConfig {
   n: number
 }
 
+export type RetrievalMode = "fast" | "auto" | "quality"
+
 export interface MCQOption {
   A: string
   B: string
@@ -48,21 +50,32 @@ export interface MCQ {
 export interface GenerateRequest {
   topics: TopicConfig[]
   output_name: string
+  retrieval_mode: RetrievalMode
 }
 
 export interface JobResponse {
   task_id: string
   status: string
   queue_position: number
+  jobs_ahead?: number
+  active_jobs?: number
+  queued_jobs?: number
   estimated_wait_min: number
+  estimated_total_min?: number
+  estimated_runtime_min?: number
+  queue_wait_min?: number
+  generation_concurrency?: number
+  llm_concurrency?: number
+  vllm_max_num_seqs?: number
   n_questions: number
+  retrieval_mode?: RetrievalMode
   message: string
 }
 
 export type GenerationState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "queued"; position: number; estimatedWait: number; taskId: string }
-  | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string }
+  | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
+  | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
   | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string }
   | { status: "failed"; error: string }

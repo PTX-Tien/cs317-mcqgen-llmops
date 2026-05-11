@@ -162,7 +162,7 @@ print('VRAM:', round(torch.cuda.get_device_properties(0).total_memory/1e9, 1), '
 > export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 > ```
 
-### Bước 5 — Download model Qwen3-8B-AWQ
+### Bước 5 — Download model Qwen2.5-7B-Instruct
 
 ```bash
 # Đặt HuggingFace cache vào storage có đủ dung lượng
@@ -172,15 +172,15 @@ mkdir -p models
 python -c "
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id='Qwen/Qwen3-8B-AWQ',
-    local_dir='models/Qwen3-8B-AWQ',
+    repo_id='Qwen/Qwen2.5-7B-Instruct',
+    local_dir='models/Qwen2.5-7B-Instruct',
     ignore_patterns=['*.msgpack', '*.h5']
 )
 print('Model downloaded successfully!')
 "
 ```
 
-> ⏱ Download ~5GB, mất 5-15 phút tùy mạng.
+> ⏱ Download khoảng 15GB, mất thời gian tùy mạng.
 
 ### Bước 6 — Chuẩn bị dữ liệu đầu vào
 
@@ -457,7 +457,7 @@ git push origin master --tags
 | **Auth** | JWT (python-jose) | 3.3.0 |
 | **Task Queue** | Celery + Redis | 5.x |
 | **LLM Serving** | vLLM | 0.8.5 |
-| **LLM Model** | Qwen3-8B-AWQ (4-bit) | — |
+| **LLM Model** | Qwen2.5-7B-Instruct | — |
 | **RAG** | HyDE + Sentence-Window + CrossEncoder | custom |
 | **Embedding** | BAAI/bge-m3 | — |
 | **Vector DB** | ChromaDB | 1.5.x |

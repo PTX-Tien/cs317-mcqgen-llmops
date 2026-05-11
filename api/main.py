@@ -1,7 +1,7 @@
 """
 api/main.py — MCQGen FastAPI server (Production-grade)
 """
-import asyncio, json, os, sys
+import asyncio, json, math, os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -16,9 +16,10 @@ from celery.result import AsyncResult
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlmodel import Session, select
 
-from api.tasks import celery_app, run_mcq_pipeline
+from api.tasks import celery_app, run_mcq_pipeline, warmup_system
 from api.core.config import settings
 from api.core.logger import setup_logging, log, CorrelationIDMiddleware
 from api.core.auth import (
@@ -57,6 +58,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+)
 
 # ── Schemas ───────────────────────────────────────────────────────
 class TopicConfig(BaseModel):
@@ -69,6 +75,7 @@ class TopicConfig(BaseModel):
 class GenerateRequest(BaseModel):
     topics:      List[TopicConfig]
     output_name: str = "exam"
+    retrieval_mode: str = "auto"
 
 class LoginResponse(BaseModel):
     access_token:  str
@@ -77,6 +84,61 @@ class LoginResponse(BaseModel):
     expires_in:    int
     role:          str
     full_name:     str
+
+GENERATION_MIN_PER_QUESTION_BY_MODE = {
+    "fast": 7,
+    "auto": 8,
+    "quality": 10,
+}
+QUEUE_MIN_PER_JOB = 10
+
+def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") -> int:
+    minutes_per_question = GENERATION_MIN_PER_QUESTION_BY_MODE.get(retrieval_mode, 8)
+    effective_concurrency = max(
+        1,
+        min(
+            settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+            settings.MCQGEN_LLM_MAX_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+        ),
+    )
+    runtime = max(1, math.ceil((n_questions * minutes_per_question) / effective_concurrency))
+    return runtime
+
+def _count_inspected_tasks(tasks_by_worker) -> int:
+    return sum(len(tasks) for tasks in (tasks_by_worker or {}).values())
+
+def get_queue_snapshot() -> dict:
+    """Return Celery queue load before submitting a new task."""
+    try:
+        inspector = celery_app.control.inspect(timeout=1.0)
+        active = inspector.active() or {}
+        reserved = inspector.reserved() or {}
+        scheduled = inspector.scheduled() or {}
+    except Exception as exc:
+        log.warning("queue_inspect_failed", error=str(exc))
+        return {
+            "active_jobs": 0,
+            "reserved_jobs": 0,
+            "scheduled_jobs": 0,
+            "queued_jobs": 0,
+            "total_jobs": 0,
+            "inspect_ok": False,
+        }
+
+    active_jobs = _count_inspected_tasks(active)
+    reserved_jobs = _count_inspected_tasks(reserved)
+    scheduled_jobs = _count_inspected_tasks(scheduled)
+    queued_jobs = reserved_jobs + scheduled_jobs
+    total_jobs = active_jobs + queued_jobs
+    return {
+        "active_jobs": active_jobs,
+        "reserved_jobs": reserved_jobs,
+        "scheduled_jobs": scheduled_jobs,
+        "queued_jobs": queued_jobs,
+        "total_jobs": total_jobs,
+        "inspect_ok": True,
+    }
 
 # ── Auth endpoints ────────────────────────────────────────────────
 @app.post("/auth/login", response_model=LoginResponse)
@@ -114,18 +176,30 @@ def health():
 
 @app.get("/queue/status")
 def queue_status(user: dict = Depends(get_current_user)):
-    try:
-        inspector = celery_app.control.inspect(timeout=1.0)
-        reserved  = inspector.reserved() or {}
-        active    = inspector.active()   or {}
-        depth = sum(len(v) for v in reserved.values()) + \
-                sum(len(v) for v in active.values())
-    except Exception:
-        depth = 0
+    queue = get_queue_snapshot()
+    depth = queue["total_jobs"]
     return {
-        "pending_jobs":      depth,
-        "estimated_wait_min": depth * 7,
-        "status":            "busy" if depth > 0 else "idle",
+        "pending_jobs":       depth,
+        "active_jobs":        queue["active_jobs"],
+        "queued_jobs":        queue["queued_jobs"],
+        "reserved_jobs":      queue["reserved_jobs"],
+        "scheduled_jobs":     queue["scheduled_jobs"],
+        "estimated_wait_min": depth * QUEUE_MIN_PER_JOB,
+        "status":             "busy" if depth > 0 else "idle",
+        "inspect_ok":         queue["inspect_ok"],
+        "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+    }
+
+@app.post("/admin/warmup")
+def admin_warmup(user: dict = Depends(require_role("teacher"))):
+    task = warmup_system.delay()
+    log.info("warmup_submitted", task_id=task.id, user=user["username"])
+    return {
+        "task_id": task.id,
+        "status": "queued",
+        "message": "Warming RAG retriever and vLLM inside Celery worker",
     }
 
 # ── Generation ────────────────────────────────────────────────────
@@ -139,16 +213,17 @@ def generate(
 ):
     topics = [t.model_dump() for t in req.topics]
     n_q    = sum(t["n"] for t in topics)
+    retrieval_mode = req.retrieval_mode.lower()
+    if retrieval_mode not in {"fast", "auto", "quality"}:
+        raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
-    # Queue depth
-    try:
-        inspector = celery_app.control.inspect(timeout=1.0)
-        reserved  = inspector.reserved() or {}
-        depth = sum(len(v) for v in reserved.values())
-    except Exception:
-        depth = 0
+    queue = get_queue_snapshot()
+    jobs_ahead = queue["total_jobs"]
 
-    task = run_mcq_pipeline.delay(topics, req.output_name)
+    estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
+    queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
+    estimated_total_min = estimated_runtime_min + queue_wait_min
+    task = run_mcq_pipeline.delay(topics, req.output_name, retrieval_mode)
 
     # Save to DB
     exam = Exam(
@@ -165,15 +240,28 @@ def generate(
         task_id=task.id,
         user=user["username"],
         n_questions=n_q,
-        queue_depth=depth,
+        retrieval_mode=retrieval_mode,
+        queue_depth=jobs_ahead,
+        active_jobs=queue["active_jobs"],
+        queued_jobs=queue["queued_jobs"],
     )
     return {
         "task_id":            task.id,
         "status":             "queued",
-        "queue_position":     depth + 1,
-        "estimated_wait_min": depth * 7,
+        "queue_position":     jobs_ahead + 1,
+        "jobs_ahead":         jobs_ahead,
+        "active_jobs":        queue["active_jobs"],
+        "queued_jobs":        queue["queued_jobs"],
+        "estimated_wait_min": estimated_total_min,
+        "estimated_total_min": estimated_total_min,
+        "estimated_runtime_min": estimated_runtime_min,
+        "queue_wait_min":     queue_wait_min,
         "n_questions":        n_q,
-        "message":            f"Generating {n_q} MCQs — position #{depth + 1}",
+        "retrieval_mode":     retrieval_mode,
+        "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency":    settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs":  settings.VLLM_MAX_NUM_SEQS,
+        "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
     }
 
 @app.get("/status/{task_id}")
@@ -181,6 +269,15 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
     result = AsyncResult(task_id, app=celery_app)
     if result.state == "PENDING":
         return {"task_id": task_id, "state": "pending", "progress": 0}
+    elif result.state == "STARTED":
+        return {
+            "task_id": task_id,
+            "state": "running",
+            "progress": 1,
+            "step": "Worker đã nhận job",
+            "current_question": 0,
+            "total_questions": 0,
+        }
     elif result.state == "PROGRESS":
         meta = result.info or {}
         return {
@@ -190,16 +287,29 @@ def get_status(task_id: str, user: dict = Depends(get_current_user)):
             "step":             meta.get("step", ""),
             "current_question": meta.get("current_question", 0),
             "total_questions":  meta.get("total_questions", 0),
+            "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+            "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+            "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
         }
     elif result.state == "SUCCESS":
         data = result.result or {}
-        return {
+        payload = {
             "task_id":  task_id,
             "state":    "success",
             "progress": 100,
             "accepted": data.get("accepted", 0),
             "failed":   data.get("failed", 0),
+            "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+            "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+            "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
         }
+        if data.get("type") == "warmup":
+            payload.update({
+                "type": "warmup",
+                "ready": data.get("ready", False),
+                "details": data,
+            })
+        return payload
     elif result.state == "FAILURE":
         return {"task_id": task_id, "state": "failed", "error": str(result.info)}
     return {"task_id": task_id, "state": result.state}
@@ -240,7 +350,14 @@ def get_results(
         exam.quality_avg = sum(m.get("evaluation",{}).get("quality_score",0) for m in mcqs) / len(mcqs) if mcqs else 0
         session.commit()
 
-    return {"task_id": task_id, "accepted": len(mcqs), "mcqs": mcqs}
+    return {
+        "task_id": task_id,
+        "accepted": len(mcqs),
+        "mcqs": mcqs,
+        "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+        "llm_concurrency": data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+    }
 
 @app.delete("/cancel/{task_id}")
 def cancel_job(task_id: str, user: dict = Depends(get_current_user)):
@@ -298,6 +415,14 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             result = AsyncResult(task_id, app=celery_app)
             if result.state == "PENDING":
                 await websocket.send_json({"state": "pending", "progress": 0})
+            elif result.state == "STARTED":
+                await websocket.send_json({
+                    "state":            "running",
+                    "progress":         1,
+                    "step":             "Worker đã nhận job",
+                    "current_question": 0,
+                    "total_questions":  0,
+                })
             elif result.state == "PROGRESS":
                 meta = result.info or {}
                 await websocket.send_json({
@@ -306,6 +431,9 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "step":             meta.get("step", ""),
                     "current_question": meta.get("current_question", 0),
                     "total_questions":  meta.get("total_questions", 0),
+                    "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+                    "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+                    "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
                 })
             elif result.state == "SUCCESS":
                 data = result.result or {}
@@ -313,6 +441,9 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "state":    "success",
                     "progress": 100,
                     "accepted": data.get("accepted", 0),
+                    "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
+                    "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
+                    "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
                 })
                 break
             elif result.state == "FAILURE":

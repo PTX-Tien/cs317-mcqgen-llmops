@@ -18,9 +18,13 @@ input/video_transcript/
 
 # Redis
 redis_data/
+tmp/
 
 # Output experiments
 output/
+
+# Local runtime DB
+data/*.db
 
 # Temp files
 fix_*.py
@@ -32,3 +36,5 @@ test_output.json
 # vLLM
 vllm_server.log
 .env
+
+results
