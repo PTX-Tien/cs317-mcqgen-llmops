@@ -23,6 +23,91 @@ Hệ thống tự động sinh câu hỏi trắc nghiệm (MCQ) cho môn CS116, 
 
 ---
 
+## 📁 Cấu trúc project
+
+Root của project chỉ giữ file cấu hình cấp dự án và entrypoint hạ tầng. Source code production nằm trong `src/mcqgen/`, API nằm trong `api/`, frontend nằm trong `webapp/`, script vận hành nằm trong `scripts/`.
+
+```
+cs317-mcqgen-llmops/
+│
+├── 🌐 api/                         # FastAPI + Celery service layer
+│   ├── main.py                     # REST API, WebSocket, queue/status endpoints
+│   ├── tasks.py                    # Celery task entrypoint
+│   ├── pdf_exporter.py             # Export đề thi/đáp án ra PDF
+│   └── core/
+│       ├── auth.py                 # JWT auth + default users
+│       ├── config.py               # Settings từ .env
+│       ├── database.py             # SQLite models/session
+│       └── logger.py               # Structured logging middleware
+│
+├── 🧠 src/
+│   ├── mcqgen/                     # Production MCQ pipeline package
+│   │   ├── pipeline_mcq.py         # Async MCQ generation pipeline
+│   │   ├── advanced_retrieval.py   # Adaptive RAG: HyDE + SW + reranker
+│   │   ├── common.py               # Config, prompts, JSON parser, utilities
+│   │   ├── chunk_transcripts.py    # DVC stage: transcript chunking
+│   │   └── indexing.py             # DVC stage: slide/transcript indexing
+│   ├── adaptive/                   # Adaptive learning logic
+│   ├── eval/                       # eval_overall, eval_iwf, metrics
+│   └── gen/                        # Generation/indexing modules và legacy helpers
+│
+├── 🖥️ webapp/                      # Next.js 16 App Router frontend chính
+│   ├── app/                        # Login, dashboard, generate, history, quiz
+│   ├── components/                 # UI components
+│   ├── lib/                        # API client, auth store, helpers
+│   └── types/                      # TypeScript interfaces
+│
+├── ⚡ vllm/                        # Benchmark/experiment chứng minh hiệu quả vLLM
+│   ├── exp02_llm_concurrency_sweep.py
+│   ├── exp03_pipeline_sequential_vs_async.py
+│   ├── exp04_max_num_seqs_ablation.py
+│   ├── exp05_prefix_cache_ablation.py
+│   ├── exp06_official_vllm_bench.py
+│   ├── exp07_no_vllm_baselines.py
+│   └── vllm_demo_plan_mcqgen.md
+│
+├── 📊 monitoring/                  # Phoenix, Prometheus, Grafana configs
+│   ├── setup_tracing.py
+│   ├── docker-compose.yml
+│   ├── prometheus/
+│   └── grafana/
+│
+├── 🧪 tests/                       # Test/debug scripts thủ công
+├── 🛠️ scripts/                     # Script vận hành
+│   ├── start_system.sh
+│   ├── stop_system.sh
+│   └── set_env.sh
+│
+├── 📚 docs/                        # Tài liệu phụ, ghi chú fix, latency plan
+├── 🎛️ vllm_demo_webapp/            # Web demo riêng cho experiment vLLM
+├── 🧾 prompts/                     # Versioned prompt assets
+├── 📥 input/                       # Input: slide, transcript, topic list
+├── 📦 data/                        # Processed data, ChromaDB index, SQLite DB
+├── 🤖 models/                      # Local model weights, không commit Git
+├── 📝 logs/                        # Runtime logs, không commit Git
+├── 📤 output/                      # Output đề thi, không commit Git
+├── 🧩 tmp/                         # Temporary runtime files, không commit Git
+│
+├── dvc.yaml                        # DVC pipeline
+├── dvc.lock
+├── Dockerfile
+├── docker-compose.yml
+├── requirements_api.txt
+├── .env.example
+└── README.md
+```
+
+Các lệnh chạy core pipeline hiện dùng Python module path:
+
+```bash
+python -m src.mcqgen.chunk_transcripts
+python -m src.mcqgen.indexing
+python -m src.mcqgen.advanced_retrieval adaptive
+python -m src.mcqgen.pipeline_mcq
+```
+
+---
+
 ## 🏗️ Kiến trúc hệ thống
 
 ```
@@ -71,7 +156,7 @@ Observability Stack:
 
 ```bash
 git clone https://github.com/PTX-Tien/cs431-mcqgen-llmops.git
-cd cs431-mcqgen-llmops/llmops_v2
+cd cs317-mcqgen-llmops
 ```
 
 ### Bước 2 — Tạo Conda environment
@@ -215,9 +300,9 @@ conda activate mcqgen_v2
 dvc repro
 
 # Hoặc build từng bước nếu muốn theo dõi:
-python chunk_transcripts.py           # Bước 1: ~2 phút → 924 transcript chunks
-python indexing.py                    # Bước 2: ~10 phút → 1220 chunks vào ChromaDB
-python sentence_window_indexing.py    # Bước 3: ~15 phút → 4756 SW chunks
+python -m src.mcqgen.chunk_transcripts  # Bước 1: ~2 phút → 924 transcript chunks
+python -m src.mcqgen.indexing           # Bước 2: ~10 phút → 1220 chunks vào ChromaDB
+python src/gen/sentence_window_indexing.py  # Bước 3: ~15 phút → 4756 SW chunks
 
 # Kiểm tra kết quả
 dvc dag     # Xem pipeline graph
@@ -262,16 +347,15 @@ cd ..
 
 ```bash
 conda activate mcqgen_v2
-bash start_system.sh
+bash scripts/start_system.sh
 ```
 
-Script tự động khởi động 8 services theo thứ tự tối ưu (parallel khi có thể):
+Script tự động khởi động các services theo thứ tự tối ưu (parallel khi có thể):
 
 ```
 [1/6] Redis          → khởi động, chờ PONG
 [2/6] vLLM           ─┐
       Phoenix         ├─ khởi động song song (~3 phút để load model)
-      Streamlit        │
       Next.js         ─┘
 [3/6] Celery Worker  → khởi động (chỉ cần Redis)
 [4/6] FastAPI        → khởi động (chỉ cần Redis)
@@ -288,7 +372,6 @@ Script tự động khởi động 8 services theo thứ tự tối ưu (paralle
   ✅ vLLM       :8000
   ✅ Phoenix    :6006
   ✅ FastAPI    :7860
-  ✅ Streamlit  :8501
   ✅ Next.js    :3000
   ✅ Prometheus :9090
   ✅ Grafana    :3001
@@ -310,7 +393,6 @@ Script tự động khởi động 8 services theo thứ tự tối ưu (paralle
 | 📊 **Grafana** | `http://SERVER_IP:3001` | System metrics dashboard |
 | 🔭 **Prometheus** | `http://SERVER_IP:9090` | Raw metrics |
 | 🌸 **Flower** | `http://SERVER_IP:5555` | Celery queue monitor |
-| 🎛️ **Streamlit** | `http://SERVER_IP:8501` | Legacy UI |
 
 ### Tài khoản mặc định
 
@@ -384,7 +466,7 @@ curl -s -X POST http://localhost:7860/generate \
 ## ⏹️ Dừng system
 
 ```bash
-bash stop_system.sh
+bash scripts/stop_system.sh
 ```
 
 **Output mong đợi:**
@@ -395,7 +477,6 @@ Stopping MCQGen system...
   ✅ Celery stopped
   ✅ Phoenix stopped
   ✅ Next.js stopped
-  ✅ Streamlit stopped
   ✅ vLLM stopped
   ✅ Redis stopped
 Done.
@@ -469,82 +550,6 @@ git push origin master --tags
 | **Export** | ReportLab (PDF) | — |
 | **CI/CD** | GitHub Actions | — |
 | **Container** | Docker Compose | v2 |
-
----
-
-## 📁 Cấu trúc project
-
-```
-llmops_v2/
-│
-├── 🔧 Core Pipeline
-│   ├── pipeline_mcq.py              # MCQ generation (5 LLM calls/câu)
-│   ├── advanced_retrieval.py        # Adaptive RAG (HyDE+SW+Reranker)
-│   ├── sentence_window_indexing.py  # Build SW index (4756 chunks)
-│   ├── indexing.py                  # Standard index (1220 chunks)
-│   ├── chunk_transcripts.py         # Whisper JSON → semantic chunks
-│   └── common.py                    # Prompts P1-P8, Config
-│
-├── 🌐 API
-│   └── api/
-│       ├── main.py                  # FastAPI endpoints
-│       ├── tasks.py                 # Celery tasks
-│       ├── pdf_exporter.py          # PDF generation (ReportLab)
-│       └── core/
-│           ├── auth.py              # JWT auth + USERS_DB
-│           ├── config.py            # Settings từ .env
-│           ├── database.py          # SQLite: Exam, Question, QuizAttempt
-│           └── logger.py            # structlog + Correlation ID middleware
-│
-├── 🖥️ Frontend
-│   └── webapp/                      # Next.js 16 App Router
-│       ├── app/
-│       │   ├── login/page.tsx       # Login form
-│       │   ├── dashboard/
-│       │   │   ├── layout.tsx       # Navbar + auth guard
-│       │   │   ├── page.tsx         # Overview + quick stats
-│       │   │   ├── generate/        # MCQ generation + progress
-│       │   │   ├── history/         # Exam history list
-│       │   │   ├── exam/[id]/       # Exam detail view
-│       │   │   └── admin/           # System admin panel
-│       │   └── quiz/page.tsx        # Student quiz interface
-│       ├── lib/
-│       │   ├── api.ts               # Axios + JWT interceptors
-│       │   └── store.ts             # Zustand auth store
-│       └── types/index.ts           # TypeScript interfaces
-│
-├── 📊 Monitoring
-│   ├── monitoring/
-│   │   ├── setup_tracing.py         # Phoenix tracing init
-│   │   ├── prometheus/prometheus.yml
-│   │   └── grafana/provisioning/    # Auto-load dashboard
-│   └── docker-compose.yml           # Prometheus + Grafana
-│
-├── 📦 Data
-│   ├── input/slide/                 # PDF slides (11 files)
-│   ├── input/transcribe_data/       # Whisper JSON (79 files)
-│   ├── data/processed/              # Generated chunks (JSONL)
-│   ├── data/indexes/                # ChromaDB vector store
-│   ├── data/mcqgen.db               # SQLite database
-│   └── prompts/v1/                  # Versioned prompts
-│
-├── 🚀 Operations
-│   ├── start_system.sh              # Parallel startup
-│   ├── stop_system.sh               # Graceful shutdown
-│   ├── Dockerfile                   # mcqgen-api:v1.0 image
-│   ├── dvc.yaml                     # DVC pipeline (3 stages)
-│   ├── .env                         # Secrets (không commit)
-│   ├── .env.example                 # Template
-│   └── .github/workflows/ci.yml    # GitHub Actions CI
-│
-└── 📝 Logs (runtime)
-    ├── logs/vllm.log
-    ├── logs/fastapi.log
-    ├── logs/celery.log
-    ├── logs/phoenix.log
-    ├── logs/nextjs.log
-    └── logs/streamlit.log
-```
 
 ---
 
@@ -667,5 +672,5 @@ pip install "tokenizers>=0.21,<0.22" --force-reinstall
 
 ## 👥 Nhóm thực hiện
 
-Đồ án môn **CS431 — Quản lý Đồ án**, nhóm 8  
+Đồ án môn **CS317 — Hệ Thống Sinh Đề Thi Tham Khảo Cho Sinh Viên**, nhóm 8  
 Trường Đại học Công nghệ Thông tin, ĐHQG TP.HCM

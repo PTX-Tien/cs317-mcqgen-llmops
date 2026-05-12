@@ -1,7 +1,7 @@
 """
 prompt_parser.py — Parse user free-text prompt → generation config
 ===================================================================
-Dùng cho web deployment (Streamlit): user nhập câu prompt tự do,
+Dùng cho web deployment: user nhập câu prompt tự do,
 hệ thống parse để xác định:
   1. Chapters/topics cần tập trung
   2. Số câu hỏi (target range)

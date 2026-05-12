@@ -1,11 +1,8 @@
 """
 pipeline_mcq.py — Full MCQ Generation Pipeline (5 calls/question, async)
-Chạy: python pipeline_mcq.py
+Chạy: python -m src.mcqgen.pipeline_mcq
 """
-# Thêm import ở đầu file
-import sys
-sys.path.insert(0, '.')
-from common import (
+from .common import (
     build_p1_gen_stem_key,
     build_p4_option_candidates,
     build_p5_cot_evaluate,
@@ -22,7 +19,7 @@ from pathlib import Path
 from openai import AsyncOpenAI
 import chromadb
 from sentence_transformers import SentenceTransformer
-from advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
+from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
 
 # ── Config ────────────────────────────────────────────────────────
 VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")

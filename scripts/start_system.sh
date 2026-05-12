@@ -80,7 +80,7 @@ log "vLLM max_model_len=$VLLM_MAX_MODEL_LEN max_num_seqs=$VLLM_MAX_NUM_SEQS | qu
 log "════════════════════════════════════"
 
 # ── STEP 1: Redis (synchronous — phải ready trước) ───────────────
-log "[1/5] Redis..."
+log "[1/6] Redis..."
 if redis-cli ping 2>/dev/null | grep -q PONG; then
     log "✅ Redis already running"
 else
@@ -91,8 +91,8 @@ else
 fi
 wait_until "Redis" "redis-cli ping 2>/dev/null | grep -q PONG"
 
-# ── STEP 2: Start PARALLEL — vLLM + Phoenix + Streamlit ──────────
-log "[2/5] Starting vLLM, Phoenix, Streamlit in parallel..."
+# ── STEP 2: Start PARALLEL — vLLM + Phoenix + Next.js ────────────
+log "[2/6] Starting vLLM, Phoenix, Next.js in parallel..."
 
 # vLLM
 start_bg "vLLM" \
@@ -115,18 +115,14 @@ start_bg "Phoenix" \
     "env TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
     "$LOG_DIR/phoenix.log"
 
-# Streamlit
-pkill -f "streamlit" 2>/dev/null || true
-sleep 1
-start_bg "Streamlit" \
-    "curl -s http://localhost:8501" \
-    "env CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES streamlit run streamlit_app.py \
-        --server.port 8501 --server.address 0.0.0.0 \
-        --server.headless true" \
-    "$LOG_DIR/streamlit.log"
+# Next.js frontend
+start_bg "Next.js" \
+    "curl -s http://localhost:3000" \
+    "bash -lc 'cd $PROJECT/webapp && npm run dev -- --hostname 0.0.0.0 --port 3000'" \
+    "$LOG_DIR/nextjs.log"
 
 # ── STEP 3: Celery — chỉ cần Redis (đã ready) ───────────────────
-log "[3/5] Celery worker..."
+log "[3/6] Celery worker..."
 pkill -f "celery.*worker" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker \
@@ -136,7 +132,7 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker
 log "   PID=$! | log=$LOG_DIR/celery.log"
 
 # ── STEP 4: FastAPI — chỉ cần Redis (đã ready) ──────────────────
-log "[4/5] FastAPI..."
+log "[4/6] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
@@ -145,7 +141,7 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
 # ── STEP 5: Wait vLLM (blocking — phải ready trước khi thông báo) 
-log "[5/5] Waiting for vLLM to finish loading model..."
+log "[5/6] Waiting for vLLM to finish loading model..."
 wait_until "vLLM" "curl -s http://localhost:8000/health"
 
 # ── STEP 6: Prometheus + Grafana (Docker) ────────────────────────
@@ -175,12 +171,12 @@ check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
 check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
 check_service "FastAPI  " "curl -s http://localhost:7860/health"        ":7860"
-check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"
+check_service "Next.js  " "curl -s http://localhost:3000"              ":3000"
 check_service "Prometheus" "curl -s http://localhost:9090/-/healthy"           ":9090"
 check_service "Grafana"    "curl -s http://localhost:3001/api/health"          ":3001"
 
 echo ""
-echo "  🌐 UI:        http://$IP:8501"
+echo "  🌐 UI:        http://$IP:3000"
 echo "  🔧 API docs:  http://$IP:7860/docs"
 echo "  📈 Monitor:   http://$IP:6006"
 log "════════════════════════════════════"

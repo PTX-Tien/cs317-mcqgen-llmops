@@ -17,13 +17,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import traceback
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from common import Config, config, save_jsonl
+from .common import Config, config, save_jsonl
 
 
 # ─── Chapter → slide filename mapping ──────────────────────────────────────

@@ -2,13 +2,13 @@
 sentence_window_indexing.py — Rebuild index với Sentence-Window technique
 Mỗi sentence được index riêng, kèm window_text để dùng khi generate MCQ.
 
-Chạy: python sentence_window_indexing.py
+Chạy: python src/gen/sentence_window_indexing.py
 """
 import json, re, sys
 from pathlib import Path
 sys.path.insert(0, ".")
 
-from common import Config, config, save_jsonl
+from src.mcqgen.common import Config, config, save_jsonl
 
 WINDOW_SIZE = 2  # ±2 sentences xung quanh
 

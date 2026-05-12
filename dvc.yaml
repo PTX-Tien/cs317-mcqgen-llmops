@@ -1,19 +1,19 @@
 stages:
   transcript_chunking:
-    cmd: python chunk_transcripts.py
+    cmd: python -m src.mcqgen.chunk_transcripts
     deps:
-      - chunk_transcripts.py
-      - common.py
+      - src/mcqgen/chunk_transcripts.py
+      - src/mcqgen/common.py
       - input/transcribe_data/
       - input/videos1.txt
     outs:
       - data/processed/transcript_chunks_with_timestamps.jsonl
 
   indexing:
-    cmd: python indexing.py
+    cmd: python -m src.mcqgen.indexing
     deps:
-      - indexing.py
-      - common.py
+      - src/mcqgen/indexing.py
+      - src/mcqgen/common.py
       - input/slide/
       - data/processed/transcript_chunks_with_timestamps.jsonl
     outs:
@@ -21,9 +21,9 @@ stages:
       - data/indexes/
 
   benchmark_rag:
-    cmd: mkdir -p data/benchmarks && python advanced_retrieval.py adaptive > data/benchmarks/rag_benchmark.log 2>&1
+    cmd: mkdir -p data/benchmarks && python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
     deps:
-      - advanced_retrieval.py
+      - src/mcqgen/advanced_retrieval.py
       - data/indexes/
     outs:
       - data/benchmarks/
