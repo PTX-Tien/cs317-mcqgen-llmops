@@ -39,7 +39,7 @@ def run_mcq_pipeline(self, topics: list, output_name: str = "exam", retrieval_mo
 
     async def _run():
         publish_progress(5, "Đang nạp pipeline/RAG", current_question=0)
-        from pipeline_mcq import run_pipeline_with_topics
+        from src.mcqgen.pipeline_mcq import run_pipeline_with_topics
 
         return await run_pipeline_with_topics(
             topics=topics,
@@ -65,7 +65,7 @@ def warmup_system(self):
     publish_progress(5, "Worker đã nhận warmup job")
 
     publish_progress(20, "Đang warm RAG retriever")
-    from advanced_retrieval import warmup_retriever
+    from src.mcqgen.advanced_retrieval import warmup_retriever
     rag_info = warmup_retriever()
 
     publish_progress(65, "Đang warm vLLM")

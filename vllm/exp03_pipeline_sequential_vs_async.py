@@ -3,7 +3,7 @@
 Experiment 03: full MCQGen pipeline benchmark, sequential vs async + vLLM.
 
 This experiment measures the real project pipeline instead of synthetic LLM-only
-requests. It imports pipeline_mcq.py, optionally precomputes RAG context, then
+requests. It imports src.mcqgen.pipeline_mcq, optionally precomputes RAG context, then
 runs the same MCQ generation tasks in two modes:
 
   - sequential: one MCQ at a time
@@ -151,8 +151,8 @@ def import_pipeline(args: argparse.Namespace) -> Any:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    print("[exp03] Importing pipeline_mcq.py. Retrieval models may load here...")
-    return importlib.import_module("pipeline_mcq")
+    print("[exp03] Importing src.mcqgen.pipeline_mcq. Retrieval models may load here...")
+    return importlib.import_module("src.mcqgen.pipeline_mcq")
 
 
 def load_pipeline_topics(args: argparse.Namespace, pipeline_mcq: Any) -> list[dict[str, Any]]:
