@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/thanhhn/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
 mkdir -p $PROJECT/redis_data
@@ -18,7 +18,7 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 # this script if you need a strict GPU split between vLLM and RAG workers.
 export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhhn/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
@@ -140,7 +140,7 @@ log "[4/5] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
-    --host 0.0.0.0 --port 7860 \
+    --host 0.0.0.0 --port 8081 \
     > $LOG_DIR/fastapi.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
@@ -174,13 +174,13 @@ check_service() {
 check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
 check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
-check_service "FastAPI  " "curl -s http://localhost:7860/health"        ":7860"
+check_service "FastAPI  " "curl -s http://localhost:8081/health"        ":7860"
 check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"
 check_service "Prometheus" "curl -s http://localhost:9090/-/healthy"           ":9090"
 check_service "Grafana"    "curl -s http://localhost:3001/api/health"          ":3001"
 
 echo ""
 echo "  🌐 UI:        http://$IP:8501"
-echo "  🔧 API docs:  http://$IP:7860/docs"
+echo "  🔧 API docs:  http://$IP:8081/docs"
 echo "  📈 Monitor:   http://$IP:6006"
 log "════════════════════════════════════"
