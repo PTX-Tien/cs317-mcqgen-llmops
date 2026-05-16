@@ -1,6 +1,6 @@
 import axios from "axios"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7860"
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -29,4 +29,4 @@ api.interceptors.response.use(
   }
 )
 
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:7860"
+export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080"

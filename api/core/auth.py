@@ -11,7 +11,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 # User store — production: thay bằng database
 # Hash passwords lazy để tránh lỗi lúc import
 _RAW_USERS = {
-    "giaovien": {"password": "gv2026", "role": "teacher", "full_name": "Giảng viên CS116"},
+    "giaovien": {"password": "gv2026", "role": "teacher", "full_name": "Giang viên CS116"},
     "sinhvien": {"password": "sv2026", "role": "student",  "full_name": "Sinh viên CS116"},
 }
 

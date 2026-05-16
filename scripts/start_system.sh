@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
 mkdir -p $PROJECT/redis_data
@@ -13,20 +13,21 @@ conda activate mcqgen_v2 2>/dev/null
 export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+export PYTHONNOUSERSITE=1
 # Qwen2.5-7B-Instruct full precision is larger than one RTX 2080 Ti.
 # Use TP=4 so vLLM stays GPU-only. Override these two variables before running
 # this script if you need a strict GPU split between vLLM and RAG workers.
-export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
-export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,5}
+export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-3}
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
 # TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
 export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
-export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
-export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
-export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-1}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
 export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
 export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
 export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
@@ -136,7 +137,7 @@ log "[4/6] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
-    --host 0.0.0.0 --port 7860 \
+    --host 0.0.0.0 --port 8080 \
     > $LOG_DIR/fastapi.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
@@ -170,13 +171,14 @@ check_service() {
 check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
 check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
-check_service "FastAPI  " "curl -s http://localhost:7860/health"        ":7860"
 check_service "Next.js  " "curl -s http://localhost:3000"              ":3000"
+check_service "FastAPI  " "curl -s http://localhost:8080/health"        ":8080"
+check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"
 check_service "Prometheus" "curl -s http://localhost:9090/-/healthy"           ":9090"
 check_service "Grafana"    "curl -s http://localhost:3001/api/health"          ":3001"
 
-echo ""
 echo "  🌐 UI:        http://$IP:3000"
-echo "  🔧 API docs:  http://$IP:7860/docs"
+echo "  🌐 UI:        http://$IP:8501"
+echo "  🔧 API docs:  http://$IP:8080/docs"
 echo "  📈 Monitor:   http://$IP:6006"
 log "════════════════════════════════════"
