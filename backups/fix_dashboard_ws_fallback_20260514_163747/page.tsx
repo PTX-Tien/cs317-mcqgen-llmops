@@ -212,14 +212,6 @@ export default function GeneratePage() {
     const ws = new WebSocket(`${WS_URL}/ws/${taskId}`)
     wsRef.current = ws
     const start = nowMs()
-    let finished = false
-    let fallbackStarted = false
-
-    const startPollingFallback = () => {
-      if (finished || fallbackStarted) return
-      fallbackStarted = true
-      pollFallback(taskId, start)
-    }
 
     ws.onmessage = async (e) => {
       const msg = JSON.parse(e.data)
@@ -242,17 +234,15 @@ export default function GeneratePage() {
           setGenState({ status: "success", mcqs: data.mcqs, elapsed: elapsedSeconds(start), taskId })
           toast.success(`✅ ${data.accepted} câu hỏi đã sinh thành công!`)
         } catch { setGenState({ status: "failed", error: "Lỗi lấy kết quả" }) }
-        finished = true
         ws.close()
       } else if (msg.state === "failed") {
         setGenState({ status: "failed", error: msg.error || "Pipeline thất bại" })
         toast.error("Pipeline thất bại")
-        finished = true
         ws.close()
       }
     }
-    ws.onerror = startPollingFallback
-    ws.onclose = startPollingFallback
+    ws.onerror = () => pollFallback(taskId, start)
+    ws.onclose = () => {}
   }
 
   const pollFallback = (taskId: string, start: number) => {
@@ -281,10 +271,7 @@ export default function GeneratePage() {
           clearInterval(interval)
           setGenState({ status: "failed", error: "Pipeline thất bại" })
         }
-      } catch {
-        clearInterval(interval)
-        setGenState({ status: "failed", error: "Không lấy được trạng thái/kết quả từ API" })
-      }
+      } catch { clearInterval(interval) }
     }, 3000)
   }
 

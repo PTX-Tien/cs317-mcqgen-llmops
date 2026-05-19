@@ -25,8 +25,10 @@ from .opening_families import (
     build_opening_style_card,
     build_previous_openings_block,
     extract_opening_prefix,
+    build_fewshot_block,
+    build_bad_examples_block,
 )
-from .prompt_loader import load_weak_openings, load_misconception_types
+from .prompt_loader import load_weak_openings
 
 # ── Config ────────────────────────────────────────────────────────
 VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")
@@ -345,47 +347,6 @@ async def atimer(name: str, q_id: str):
         dt = time.perf_counter() - t0
         print(f"[TIMING] {q_id} | {name} | {dt:.2f}s")
 
-
-# ── Phase 3: Misconception helpers ────────────────────────────────
-
-def build_misconception_guidance(topic: str) -> str:
-    """Build misconception guidance block for P4 prompt based on topic."""
-    types = load_misconception_types()
-    if not types:
-        return ""
-    topic_lower = topic.lower()
-    # Select relevant misconception types based on topic keywords
-    relevant = []
-    for mt in types:
-        examples_str = " ".join(mt.get("examples", [])).lower()
-        name_str = mt.get("name_vi", "").lower() + " " + mt.get("description", "").lower()
-        # Check if any keyword from topic appears in misconception examples/description
-        topic_words = [w for w in topic_lower.split() if len(w) > 3]
-        if any(w in examples_str or w in name_str for w in topic_words):
-            relevant.append(mt)
-    # If no specific match, use first 4 general types
-    if not relevant:
-        relevant = types[:4]
-    items = []
-    for mt in relevant[:4]:
-        examples = mt.get("examples", [])[:2]
-        ex_str = "; ".join(examples) if examples else ""
-        items.append(f"- {mt['id']} ({mt.get('name_vi','')}): {mt.get('description','')}. Ví dụ: {ex_str}")
-    return "\nCác misconception phổ biến liên quan đến topic này:\n" + "\n".join(items) + "\n"
-
-
-def extract_candidate_texts(raw_candidates: list) -> list[str]:
-    """Extract plain text candidates from P4 output — backward compatible with both list[str] and list[dict]."""
-    texts = []
-    for c in raw_candidates:
-        if isinstance(c, str):
-            texts.append(c)
-        elif isinstance(c, dict):
-            texts.append(c.get("option_text", str(c)))
-        else:
-            texts.append(str(c))
-    return texts
-
 # ── Single MCQ pipeline (5 calls) ─────────────────────────────────
 async def generate_one_mcq(
     topic_cfg: dict,
@@ -395,6 +356,8 @@ async def generate_one_mcq(
     # ── Phase 1: diversity context ──
     opening_style_card: str = "",
     previous_openings_block: str = "",
+    # ── Phase 2: few-shot ──
+    fewshot_block: str = "",
 ) -> dict | None:
     topic      = topic_cfg["topic"]
     difficulty = topic_cfg["difficulty"]
@@ -427,6 +390,7 @@ async def generate_one_mcq(
             num_single_correct=1,
             opening_style_card=opening_style_card,
             previous_openings_block=previous_openings_block,
+            fewshot_block=fewshot_block,
         )
         async with atimer("P1", q_id):
             raw_p1 = await llm(p1_prompt, temperature=0.7, max_tokens=384)
@@ -435,17 +399,12 @@ async def generate_one_mcq(
             log_llm_parse_error("P1", q_id, raw_p1, p1)
             return None
 
-        # ── Call 2: P4 Gen Distractors (Phase 3: misconception-guided) ──
-        misconception_guide = build_misconception_guidance(topic)
-        p4_prompt = build_p4_option_candidates(
-            p1, num_candidates=5,
-            misconception_guidance=misconception_guide,
-        )
+        # ── Call 2: P4 Gen Distractors ────────────────────────────
+        p4_prompt = build_p4_option_candidates(p1, num_candidates=5)
         async with atimer("P4", q_id):
-            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=768)
+            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=512)
         p4 = parse_json_output(raw_p4)
-        raw_candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
-        candidates = extract_candidate_texts(raw_candidates)
+        candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
         if not candidates:
             log_llm_parse_error("P4", q_id, raw_p4, p4)
             return None
@@ -530,10 +489,6 @@ async def generate_one_mcq(
         p8["rag_best_score"]  = max(rag_debug.get("top_scores_after_rerank", [0]))
         p8["evaluation"]  = eval_result
         p8["status"]      = "accepted"
-        # ── Propagate diversity metadata from P1 ──
-        for meta_key in ("opening_family", "question_form", "tested_skill"):
-            if meta_key not in p8 and meta_key in p1:
-                p8[meta_key] = p1[meta_key]
         score = eval_result.get("quality_score", 0) if isinstance(eval_result, dict) else 0
         print(f"  ✅ [{q_id}] score={score:.2f} | {topic}")
         return p8
@@ -651,6 +606,23 @@ async def run_pipeline_with_topics(
             prev_block = build_previous_openings_block(previous_openings)
             used_families.append(family)
 
+        # Build few-shot block (Phase 2) — outside lock, read-only
+        fewshot = build_fewshot_block(
+            topic=topic_cfg.get("topic", ""),
+            opening_family=family,
+            difficulty=topic_cfg.get("difficulty", "G2"),
+            n=2,
+        )
+        bad_examples = build_bad_examples_block(n=2)
+        fewshot_combined = fewshot + bad_examples
+
+        print(
+            f"[PHASE2_FEWSHOT] topic={topic_cfg['topic']} "
+            f"family={family} "
+            f"fewshot_chars={len(fewshot)} "
+            f"bad_examples_chars={len(bad_examples)}"
+        )
+        
         key = (topic_cfg["topic"], topic_cfg["chapter_id"], retrieval_mode)
         try:
             result = await generate_one_mcq(
@@ -660,6 +632,7 @@ async def run_pipeline_with_topics(
                 retrieval_mode=retrieval_mode,
                 opening_style_card=style_card,
                 previous_openings_block=prev_block,
+                fewshot_block=fewshot_combined,
             )
 
             # Update previous_openings after successful generation

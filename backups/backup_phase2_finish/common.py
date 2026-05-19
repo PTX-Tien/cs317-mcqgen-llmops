@@ -409,8 +409,6 @@ def build_p4_option_candidates(
     similar_mcqs_reference: str = "",
     num_candidates: int = 6,
     assessment_style_examples: str = "",
-    # ── Phase 3: misconception guidance ──
-    misconception_guidance: str = "",
 ) -> str:
     stem_key_str = json.dumps(refined_stem_key_json, ensure_ascii=False, indent=2)
     correct_answer_count = refined_stem_key_json.get("correct_answer_count", 1)
@@ -446,42 +444,27 @@ KHÔNG được thay đổi tập đáp án đúng.
 - Số distractor cần thiết cho câu hỏi này: {num_distractors_needed}
   (vì correct_answer_count = {correct_answer_count})
 - Các distractor phải SAI NHƯNG HỢP LÝ — sai trong ngữ cảnh cụ thể của câu hỏi.
+- Các distractor phải đánh trúng các lỗi sai phổ biến của sinh viên.
 - KHÔNG dùng: "Tất cả đáp án trên", "Không đáp án nào đúng",
   "Đáp án A và B đều đúng".
 - Không được paraphrase quá gần với correct answers.
 - Không lộ mẹo làm bài bằng grammar clue, absolute terms, hoặc độ dài quá khác biệt.
-- Tất cả distractors bằng tiếng Việt CÓ DẤU, phù hợp ngữ cảnh đề thi.
-
-[YÊU CẦU MISCONCEPTION — BẮT BUỘC]
-Mỗi distractor PHẢI đánh trúng một lỗi hiểu sai (misconception) cụ thể của sinh viên.
-KHÔNG sinh distractor sai ngẫu nhiên hoặc sai vô lý.
-{misconception_guidance}
-Các misconception_type được phép sử dụng:
-- confuse_model_family: nhầm mô hình này với họ mô hình khác
-- confuse_parameter_effect: nhầm tác động khi thay đổi tham số
-- confuse_api_usage: nhầm hàm/tham số/workflow trong thư viện
-- reverse_causality: đảo chiều quan hệ nhân quả
-- overgeneralization: khái quát hóa sai (áp dụng đúng 1 TH sang mọi TH)
-- terminology_confusion: nhầm thuật ngữ tương tự
-- confuse_preprocessing: nhầm bước/mục đích tiền xử lý
-- confuse_evaluation: nhầm metric hoặc phương pháp đánh giá
-{ref_block}{rag_block}
+- Tất cả distractors bằng tiếng Việt, phù hợp ngữ cảnh đề thi.{ref_block}{rag_block}
 
 [TASK]
 1. Đọc kỹ stem và correct answers từ input.
-2. Xác định các misconception phổ biến liên quan đến câu hỏi này.
-3. Sinh {num_candidates} distractor candidates, mỗi cái đánh trúng một misconception khác nhau.
-4. Với mỗi distractor, ghi rõ loại misconception và lý do sai.
+2. Sinh {num_candidates} distractor candidates theo các tiêu chí trên.
+3. Mỗi distractor phải có lý do sai cụ thể (ghi trong reasoning).
 
 [OUTPUT FORMAT - JSON ONLY]
 {{
   "candidate_distractors": [
-    {{
-      "option_text": "<distractor tiếng Việt có dấu>",
-      "misconception_type": "<một trong các type ở trên>",
-      "why_plausible": "<tại sao sinh viên có thể chọn nhầm — 1 câu ngắn>",
-      "why_wrong": "<tại sao sai về mặt kỹ thuật — 1 câu ngắn>"
-    }}
+    "<distractor 1>",
+    "<distractor 2>",
+    "<distractor 3>",
+    "<distractor 4>",
+    "<distractor 5>",
+    "<distractor 6>"
   ],
   "style_alignment_note": "<ngắn gọn, nêu vì sao distractors phù hợp style đề thi>"
 }}

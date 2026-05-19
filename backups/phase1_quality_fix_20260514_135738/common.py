@@ -176,8 +176,6 @@ def build_p1_gen_stem_key(
     # ── Phase 1: Opening Style Card + Previous Openings ──
     opening_style_card: str = "",
     previous_openings_block: str = "",
-    # ── Phase 2: Few-shot Style Reference ──
-    fewshot_block: str = "",
 ) -> str:
     ref_block = (
         f"\n\n[STYLE REFERENCE — Câu hỏi mẫu từ đề thi sẵn có]\n"
@@ -204,16 +202,6 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
 - Nếu là "multiple_correct" → stem phải có nhãn [Nhiều đáp án đúng].
 - Nếu context không đủ thông tin thì phải từ chối sinh câu hỏi.
 - Không sinh distractor ở bước này.
-
-
-[CHẤT LƯỢNG NGÔN NGỮ VÀ CÂU HỎI - BẮT BUỘC]
-- Toàn bộ `question_text`, `options` và metadata hiển thị cho người dùng phải viết bằng tiếng Việt có dấu.
-- Không được viết tiếng Việt không dấu. Ví dụ SAI: "Han che nao can luu y khi su dung cay quyet dinh".
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc đoạn văn bản ngoại ngữ không liên quan.
-- `question_text` chỉ được là câu hỏi, không được giải thích đáp án trong câu hỏi.
-- `question_text` không được chứa các cụm: "đáp án đúng là", "vì đáp án", "giải thích", "nên chọn".
-- Phương án trả lời phải ngắn gọn như đáp án trong đề thi trắc nghiệm, không viết thành đoạn giải thích dài.
-- Mỗi phương án nên dưới 140 ký tự nếu có thể.
 
 [STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN]
 - **TUYỆT ĐỐI KHÔNG** được ghi đáp án đúng (hoặc một phần nội dung của đáp án đúng) vào trong question_text / stem.
@@ -243,7 +231,7 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
 
 [CONCEPT CONTEXT]
 {concept_context_blocks}
-{ref_block}{fewshot_block}
+{ref_block}
 [TASK]
 Hãy sinh trước:
 1. Stem hoặc question_text
@@ -361,15 +349,6 @@ Nhiệm vụ của bạn là viết lại câu hỏi dựa trên gợi ý cải 
 
 {EXAM_STYLE_BLOCK}
 
-
-[CHẤT LƯỢNG NGÔN NGỮ CỦA DISTRACTOR - BẮT BUỘC]
-- Mỗi distractor phải viết bằng tiếng Việt có dấu.
-- Không được viết tiếng Việt không dấu.
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc văn bản ngoại ngữ không liên quan.
-- Distractor phải là một phương án trả lời ngắn gọn, không phải đoạn giải thích.
-- Không bắt đầu distractor bằng "Vì", "Bởi vì", "Do đó", "Giải thích".
-- Mỗi distractor nên dưới 140 ký tự.
-
 [TASK]
 1. Áp dụng gợi ý để viết lại câu hỏi (stem).
 2. GIỮ NGUYÊN tập đáp án đúng (correct_answers_content).
@@ -409,8 +388,6 @@ def build_p4_option_candidates(
     similar_mcqs_reference: str = "",
     num_candidates: int = 6,
     assessment_style_examples: str = "",
-    # ── Phase 3: misconception guidance ──
-    misconception_guidance: str = "",
 ) -> str:
     stem_key_str = json.dumps(refined_stem_key_json, ensure_ascii=False, indent=2)
     correct_answer_count = refined_stem_key_json.get("correct_answer_count", 1)
@@ -446,42 +423,27 @@ KHÔNG được thay đổi tập đáp án đúng.
 - Số distractor cần thiết cho câu hỏi này: {num_distractors_needed}
   (vì correct_answer_count = {correct_answer_count})
 - Các distractor phải SAI NHƯNG HỢP LÝ — sai trong ngữ cảnh cụ thể của câu hỏi.
+- Các distractor phải đánh trúng các lỗi sai phổ biến của sinh viên.
 - KHÔNG dùng: "Tất cả đáp án trên", "Không đáp án nào đúng",
   "Đáp án A và B đều đúng".
 - Không được paraphrase quá gần với correct answers.
 - Không lộ mẹo làm bài bằng grammar clue, absolute terms, hoặc độ dài quá khác biệt.
-- Tất cả distractors bằng tiếng Việt CÓ DẤU, phù hợp ngữ cảnh đề thi.
-
-[YÊU CẦU MISCONCEPTION — BẮT BUỘC]
-Mỗi distractor PHẢI đánh trúng một lỗi hiểu sai (misconception) cụ thể của sinh viên.
-KHÔNG sinh distractor sai ngẫu nhiên hoặc sai vô lý.
-{misconception_guidance}
-Các misconception_type được phép sử dụng:
-- confuse_model_family: nhầm mô hình này với họ mô hình khác
-- confuse_parameter_effect: nhầm tác động khi thay đổi tham số
-- confuse_api_usage: nhầm hàm/tham số/workflow trong thư viện
-- reverse_causality: đảo chiều quan hệ nhân quả
-- overgeneralization: khái quát hóa sai (áp dụng đúng 1 TH sang mọi TH)
-- terminology_confusion: nhầm thuật ngữ tương tự
-- confuse_preprocessing: nhầm bước/mục đích tiền xử lý
-- confuse_evaluation: nhầm metric hoặc phương pháp đánh giá
-{ref_block}{rag_block}
+- Tất cả distractors bằng tiếng Việt, phù hợp ngữ cảnh đề thi.{ref_block}{rag_block}
 
 [TASK]
 1. Đọc kỹ stem và correct answers từ input.
-2. Xác định các misconception phổ biến liên quan đến câu hỏi này.
-3. Sinh {num_candidates} distractor candidates, mỗi cái đánh trúng một misconception khác nhau.
-4. Với mỗi distractor, ghi rõ loại misconception và lý do sai.
+2. Sinh {num_candidates} distractor candidates theo các tiêu chí trên.
+3. Mỗi distractor phải có lý do sai cụ thể (ghi trong reasoning).
 
 [OUTPUT FORMAT - JSON ONLY]
 {{
   "candidate_distractors": [
-    {{
-      "option_text": "<distractor tiếng Việt có dấu>",
-      "misconception_type": "<một trong các type ở trên>",
-      "why_plausible": "<tại sao sinh viên có thể chọn nhầm — 1 câu ngắn>",
-      "why_wrong": "<tại sao sai về mặt kỹ thuật — 1 câu ngắn>"
-    }}
+    "<distractor 1>",
+    "<distractor 2>",
+    "<distractor 3>",
+    "<distractor 4>",
+    "<distractor 5>",
+    "<distractor 6>"
   ],
   "style_alignment_note": "<ngắn gọn, nêu vì sao distractors phù hợp style đề thi>"
 }}
@@ -674,16 +636,6 @@ Nhiệm vụ của bạn là lắp ráp câu hỏi hoàn chỉnh với 4 options
 {chr(10).join(f"  - {d['option_text']}" for d in selected_distractors)}
 
 {EXAM_STYLE_BLOCK}
-
-
-[CHẤT LƯỢNG CUỐI CÙNG - BẮT BUỘC]
-- `question_text` và tất cả phương án A/B/C/D phải viết bằng tiếng Việt có dấu.
-- Nếu input từ P1/P4 có tiếng Việt không dấu, phải sửa thành tiếng Việt có dấu trong output cuối.
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc văn bản ngoại ngữ không liên quan.
-- `question_text` chỉ là câu hỏi; không giải thích đáp án trong stem.
-- Không để đáp án đúng hoặc nội dung giải thích đáp án xuất hiện trong `question_text`.
-- Phương án A/B/C/D phải ngắn gọn như phương án thi trắc nghiệm, không phải đoạn giải thích.
-- Không tạo field giải thích đáp án, rationale, `style_alignment_note` trong output cuối.
 
 [CONSTRAINTS]
 - Tổng số options = 4.

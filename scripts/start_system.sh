@@ -16,7 +16,7 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 # Qwen2.5-7B-Instruct full precision is larger than one RTX 2080 Ti.
 # Use TP=4 so vLLM stays GPU-only. Override these two variables before running
 # this script if you need a strict GPU split between vLLM and RAG workers.
-export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
 export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhhn/.cache/huggingface
 export HF_HUB_OFFLINE=0
@@ -32,6 +32,10 @@ export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
 export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
 export MCQGEN_MAX_CONCURRENT_QUESTIONS=${MCQGEN_MAX_CONCURRENT_QUESTIONS:-4}
 export MCQGEN_LLM_MAX_CONCURRENCY=${MCQGEN_LLM_MAX_CONCURRENCY:-$VLLM_MAX_NUM_SEQS}
+export VLLM_PORT=${VLLM_PORT:-7681}
+export VLLM_URL=${VLLM_URL:-http://localhost:${VLLM_PORT}/v1}
+export VLLM_MODEL=mcqgen
+
 VLLM_CPU_OFFLOAD_ARGS=""
 if [ "$VLLM_CPU_OFFLOAD_GB" != "0" ] && [ "$VLLM_CPU_OFFLOAD_GB" != "0.0" ]; then
     VLLM_CPU_OFFLOAD_ARGS="--cpu-offload-gb $VLLM_CPU_OFFLOAD_GB"
@@ -96,7 +100,7 @@ log "[2/6] Starting vLLM, Phoenix, Next.js in parallel..."
 
 # vLLM
 start_bg "vLLM" \
-    "curl -s http://localhost:8000/health" \
+    "curl -s http://localhost:$VLLM_PORT/health" \
     "env CUDA_VISIBLE_DEVICES=$VLLM_CUDA_VISIBLE_DEVICES vllm serve models/Qwen2.5-7B-Instruct \
         --dtype half \
         --tensor-parallel-size $VLLM_TENSOR_PARALLEL_SIZE \
@@ -105,7 +109,7 @@ start_bg "vLLM" \
         $VLLM_CPU_OFFLOAD_ARGS \
         --enforce-eager --enable-prefix-caching \
         --disable-log-requests \
-        --max-num-seqs $VLLM_MAX_NUM_SEQS --port 8000 --host 0.0.0.0 \
+        --max-num-seqs $VLLM_MAX_NUM_SEQS --port $VLLM_PORT --host 0.0.0.0 \
         --served-model-name mcqgen" \
     "$LOG_DIR/vllm.log"
 
@@ -142,7 +146,7 @@ log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
 # ── STEP 5: Wait vLLM (blocking — phải ready trước khi thông báo) 
 log "[5/6] Waiting for vLLM to finish loading model..."
-wait_until "vLLM" "curl -s http://localhost:8000/health"
+wait_until "vLLM" "curl -s http://localhost:$VLLM_PORT/health"
 
 # ── STEP 6: Prometheus + Grafana (Docker) ────────────────────────
 log "[6/6] Prometheus + Grafana..."
@@ -168,7 +172,7 @@ check_service() {
 }
 
 check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
-check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
+check_service "vLLM     " "curl -s http://localhost:$VLLM_PORT/health" ":$VLLM_PORT"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
 check_service "FastAPI  " "curl -s http://localhost:8081/health"        ":7860"
 check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"

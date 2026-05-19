@@ -1,0 +1,54 @@
+{
+  "version": "2.0-phase1",
+  "weak_openings": [
+    "Trong các mô hình phân lớp sau",
+    "Trong các phương pháp sau",
+    "Trong các kỹ thuật sau",
+    "Trong quá trình",
+    "Khi xây dựng",
+    "Khi huấn luyện",
+    "Hãy xác định",
+    "Hãy chọn",
+    "Cho biết",
+    "Mô hình nào sau đây",
+    "Đáp án nào sau đây",
+    "Phương pháp nào sau đây"
+  ],
+  "examples": [
+    {
+      "id": "bad_001",
+      "bad_opening": "Trong các mô hình phân lớp sau, mô hình nào sử dụng hyperplane?",
+      "bad_reason": "Dạng mở đầu liệt kê quá phổ biến, dễ làm nhiều câu trong đề giống nhau.",
+      "better_rewrite": "Vai trò của hyperplane trong SVM được hiểu đúng nhất như thế nào?",
+      "better_reason": "Đi trực tiếp vào khái niệm cần kiểm tra, không dùng mẫu 'Trong các...'."
+    },
+    {
+      "id": "bad_002",
+      "bad_opening": "Trong quá trình xây dựng cây quyết định, lựa chọn nào dưới đây là đúng?",
+      "bad_reason": "Mở đầu chung chung, không chỉ rõ trọng tâm kiến thức cần kiểm tra.",
+      "better_rewrite": "Yếu tố nào quyết định cách cây quyết định chọn thuộc tính để tách nhánh?",
+      "better_reason": "Tập trung vào cơ chế chọn thuộc tính, rõ ý định sư phạm hơn."
+    },
+    {
+      "id": "bad_003",
+      "bad_opening": "Hãy xác định tham số đúng trong scikit-learn.",
+      "bad_reason": "Giống câu lệnh làm bài hơn là stem tự nhiên của đề thi.",
+      "better_rewrite": "Trong scikit-learn, tham số nào giới hạn độ sâu tối đa của cây quyết định?",
+      "better_reason": "Hỏi trực tiếp API cụ thể và giữ đúng văn phong trắc nghiệm."
+    },
+    {
+      "id": "bad_004",
+      "bad_opening": "Cho biết phát biểu nào đúng về overfitting.",
+      "bad_reason": "Mở đầu quá chung, không tạo được trọng tâm đánh giá rõ ràng.",
+      "better_rewrite": "Dấu hiệu nào cho thấy một mô hình đang bị quá khớp trên tập huấn luyện?",
+      "better_reason": "Chuyển sang kiểm tra biểu hiện của khái niệm, gần phong cách đề thi hơn."
+    },
+    {
+      "id": "bad_005",
+      "bad_opening": "Đáp án nào sau đây là đúng về Logistic Regression?",
+      "bad_reason": "Mở đầu máy móc và không nói rõ kỹ năng cần kiểm tra.",
+      "better_rewrite": "Điểm khác biệt quan trọng giữa Logistic Regression và hồi quy tuyến tính là gì?",
+      "better_reason": "Đặt câu hỏi theo dạng so sánh, giúp kiểm tra khả năng phân biệt khái niệm."
+    }
+  ]
+}

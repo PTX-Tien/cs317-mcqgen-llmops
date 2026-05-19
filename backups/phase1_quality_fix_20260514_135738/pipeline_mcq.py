@@ -13,7 +13,7 @@ from .common import (
     parse_json_output,
 )
 
-import asyncio, json, os, time, re
+import asyncio, json, os, time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from openai import AsyncOpenAI
@@ -26,7 +26,6 @@ from .opening_families import (
     build_previous_openings_block,
     extract_opening_prefix,
 )
-from .prompt_loader import load_weak_openings, load_misconception_types
 
 # ── Config ────────────────────────────────────────────────────────
 VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")
@@ -254,76 +253,6 @@ def log_llm_parse_error(stage: str, q_id: str, raw_text: str, parsed: dict | Non
     print(f"  [LLM_PARSE_ERROR] raw_output:\n{_truncate_for_log(raw_text)}")
 
 
-
-def normalize_opening_text(text: str) -> str:
-    text = (text or "").strip().lower()
-    text = re.sub(r"^\[[^\]]+\]\s*", "", text)
-    text = re.sub(r"\s+", " ", text)
-    return text
-
-
-def final_opening_issues(question_text: str, opening_family: str = "") -> list[str]:
-    opening = normalize_opening_text(question_text)
-    issues: list[str] = []
-
-    weak_openings = [w.lower() for w in load_weak_openings()]
-    for weak in weak_openings:
-        if opening.startswith(weak):
-            issues.append(f"forbidden_opening:{weak}")
-
-    # "Trong ..." quota gate. Allow only technical/API/formula openings.
-    starts_with_trong = opening.startswith("trong ")
-    allowed_trong_families = {"code_api", "formula_interpretation", "scenario_application"}
-
-    allowed_prefixes = (
-        "trong scikit-learn",
-        "trong sklearn",
-        "trong pandas",
-        "trong numpy",
-        "trong pytorch",
-        "trong công thức",
-        "trong hàm",
-        "trong đoạn code",
-        "trong một bài toán",
-    )
-
-    if starts_with_trong:
-        is_allowed_prefix = opening.startswith(allowed_prefixes)
-        is_allowed_family = opening_family in allowed_trong_families
-        if not (is_allowed_prefix and is_allowed_family):
-            issues.append("overused_trong_opening")
-
-    return issues
-
-
-
-def build_opening_repair_prompt(mcq: dict, issues: list[str], opening_family: str = "") -> str:
-    return f"""[ROLE]
-Bạn là giảng viên CS116 đang sửa cách mở đầu câu hỏi trắc nghiệm.
-
-[ISSUES]
-{json.dumps(issues, ensure_ascii=False)}
-
-[OPENING FAMILY ĐƯỢC GÁN]
-{opening_family}
-
-[INPUT MCQ]
-{json.dumps(mcq, ensure_ascii=False, indent=2)}
-
-[YÊU CẦU SỬA - BẮT BUỘC]
-- Chỉ viết lại `question_text` để tránh lỗi mở đầu.
-- Giữ nguyên ý nghĩa kỹ thuật, options, correct_answers và các field còn lại.
-- Không bắt đầu bằng "Trong ..." trừ khi thật sự là API/công thức/đoạn code.
-- Không bắt đầu bằng "Trong các", "Trong quá trình", "Hãy chọn", "Hãy xác định", "Cho biết".
-- Câu hỏi phải bằng tiếng Việt có dấu.
-- Không giải thích đáp án trong câu hỏi.
-- Trả về đúng một JSON object hợp lệ, không markdown.
-
-[OUTPUT]
-Trả lại MCQ đầy đủ sau khi sửa.
-"""
-
-
 def log_mcq_debug(q_id: str, mcq: dict):
     preview = {
         "question_id": q_id,
@@ -344,47 +273,6 @@ async def atimer(name: str, q_id: str):
     finally:
         dt = time.perf_counter() - t0
         print(f"[TIMING] {q_id} | {name} | {dt:.2f}s")
-
-
-# ── Phase 3: Misconception helpers ────────────────────────────────
-
-def build_misconception_guidance(topic: str) -> str:
-    """Build misconception guidance block for P4 prompt based on topic."""
-    types = load_misconception_types()
-    if not types:
-        return ""
-    topic_lower = topic.lower()
-    # Select relevant misconception types based on topic keywords
-    relevant = []
-    for mt in types:
-        examples_str = " ".join(mt.get("examples", [])).lower()
-        name_str = mt.get("name_vi", "").lower() + " " + mt.get("description", "").lower()
-        # Check if any keyword from topic appears in misconception examples/description
-        topic_words = [w for w in topic_lower.split() if len(w) > 3]
-        if any(w in examples_str or w in name_str for w in topic_words):
-            relevant.append(mt)
-    # If no specific match, use first 4 general types
-    if not relevant:
-        relevant = types[:4]
-    items = []
-    for mt in relevant[:4]:
-        examples = mt.get("examples", [])[:2]
-        ex_str = "; ".join(examples) if examples else ""
-        items.append(f"- {mt['id']} ({mt.get('name_vi','')}): {mt.get('description','')}. Ví dụ: {ex_str}")
-    return "\nCác misconception phổ biến liên quan đến topic này:\n" + "\n".join(items) + "\n"
-
-
-def extract_candidate_texts(raw_candidates: list) -> list[str]:
-    """Extract plain text candidates from P4 output — backward compatible with both list[str] and list[dict]."""
-    texts = []
-    for c in raw_candidates:
-        if isinstance(c, str):
-            texts.append(c)
-        elif isinstance(c, dict):
-            texts.append(c.get("option_text", str(c)))
-        else:
-            texts.append(str(c))
-    return texts
 
 # ── Single MCQ pipeline (5 calls) ─────────────────────────────────
 async def generate_one_mcq(
@@ -435,17 +323,12 @@ async def generate_one_mcq(
             log_llm_parse_error("P1", q_id, raw_p1, p1)
             return None
 
-        # ── Call 2: P4 Gen Distractors (Phase 3: misconception-guided) ──
-        misconception_guide = build_misconception_guidance(topic)
-        p4_prompt = build_p4_option_candidates(
-            p1, num_candidates=5,
-            misconception_guidance=misconception_guide,
-        )
+        # ── Call 2: P4 Gen Distractors ────────────────────────────
+        p4_prompt = build_p4_option_candidates(p1, num_candidates=5)
         async with atimer("P4", q_id):
-            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=768)
+            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=512)
         p4 = parse_json_output(raw_p4)
-        raw_candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
-        candidates = extract_candidate_texts(raw_candidates)
+        candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
         if not candidates:
             log_llm_parse_error("P4", q_id, raw_p4, p4)
             return None
@@ -482,28 +365,6 @@ async def generate_one_mcq(
         if "error" in p8:
             log_llm_parse_error("P8", q_id, raw_p8, p8)
             return None
-        opening_issues = final_opening_issues(
-            p8.get("question_text", ""),
-            p1.get("opening_family", ""),
-        )
-        if opening_issues:
-            print(f"  ⚠️ OPENING_REPAIR [{q_id}]: {opening_issues}")
-            opening_repair_prompt = build_opening_repair_prompt(
-                p8,
-                opening_issues,
-                p1.get("opening_family", ""),
-            )
-            async with atimer("OPENING_REPAIR", q_id):
-                raw_opening_repair = await llm(opening_repair_prompt, temperature=0.1, max_tokens=512)
-            repaired_opening = parse_json_output(raw_opening_repair)
-            if "error" in repaired_opening:
-                log_llm_parse_error("OPENING_REPAIR", q_id, raw_opening_repair, repaired_opening)
-                return None
-            if final_opening_issues(repaired_opening.get("question_text", ""), p1.get("opening_family", "")):
-                print(f"  ❌ OPENING_REJECT [{q_id}]: still has bad opening")
-                return None
-            p8 = repaired_opening
-
         log_mcq_debug(q_id, p8)
 
         # ── Optional Call 7: Eval Overall ─────────────────────────
@@ -530,10 +391,6 @@ async def generate_one_mcq(
         p8["rag_best_score"]  = max(rag_debug.get("top_scores_after_rerank", [0]))
         p8["evaluation"]  = eval_result
         p8["status"]      = "accepted"
-        # ── Propagate diversity metadata from P1 ──
-        for meta_key in ("opening_family", "question_form", "tested_skill"):
-            if meta_key not in p8 and meta_key in p1:
-                p8[meta_key] = p1[meta_key]
         score = eval_result.get("quality_score", 0) if isinstance(eval_result, dict) else 0
         print(f"  ✅ [{q_id}] score={score:.2f} | {topic}")
         return p8
