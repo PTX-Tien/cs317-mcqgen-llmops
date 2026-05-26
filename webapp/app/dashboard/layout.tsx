@@ -1,18 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   LayoutDashboard,
   Zap,
   History,
   Shield,
-  Settings,
   BookOpen,
-  BarChart3,
-  Database,
-  FileText,
   Sun,
   Moon,
   Menu,
@@ -31,9 +27,43 @@ const NAV_ITEMS = [
 
 const SYSTEM_ITEMS = [
   { href: "/dashboard/admin", label: "Admin", icon: Shield },
-  { href: "/dashboard/settings", label: "Cài đặt", icon: Settings },
-  { href: "/dashboard/docs", label: "Tài liệu hướng dẫn", icon: BookOpen },
 ];
+
+function NavItem({
+  href,
+  label,
+  icon: Icon,
+  isActive,
+  sidebarOpen,
+}: {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  isActive: boolean;
+  sidebarOpen: boolean;
+}) {
+  return (
+    <Link href={href} title={!sidebarOpen ? label : undefined}>
+      <div
+        className={`
+          flex items-center rounded-2xl py-3 cursor-pointer
+          transition-all duration-200
+          ${sidebarOpen ? "gap-3 px-4 justify-start" : "justify-center px-0"}
+          ${
+            isActive
+              ? "bg-gradient-to-r from-[#0B5CFF] to-[#1E7FFF] shadow-blue-500/30 text-white"
+              : "hover:bg-white/10 text-white/80 hover:text-white"
+          }
+        `}
+      >
+        <Icon size={20} className="shrink-0" />
+        {sidebarOpen && (
+          <span className="whitespace-nowrap text-sm font-medium">{label}</span>
+        )}
+      </div>
+    </Link>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -41,9 +71,16 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, clearAuth } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+
+  // Determine active route: exact match for /dashboard, prefix match for others
+  const isActive = (href: string) => {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname.startsWith(href);
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -92,27 +129,15 @@ export default function DashboardLayout({
             </p>
           )}
 
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
-            <Link
+          {NAV_ITEMS.map(({ href, label, icon }) => (
+            <NavItem
               key={href}
               href={href}
-              title={!sidebarOpen ? label : undefined}
-            >
-              <div
-                className={`
-                  flex items-center rounded-2xl py-3 cursor-pointer
-                  transition-all duration-200 hover:bg-white/10
-                  ${sidebarOpen ? "gap-3 px-4 justify-start" : "justify-center px-0"}
-                `}
-              >
-                <Icon size={20} className="shrink-0" />
-                {sidebarOpen && (
-                  <span className="whitespace-nowrap text-sm font-medium">
-                    {label}
-                  </span>
-                )}
-              </div>
-            </Link>
+              label={label}
+              icon={icon}
+              isActive={isActive(href)}
+              sidebarOpen={sidebarOpen}
+            />
           ))}
 
           <div className="pt-4">
@@ -123,27 +148,15 @@ export default function DashboardLayout({
             )}
             {!sidebarOpen && <div className="border-t border-white/10 my-3" />}
 
-            {SYSTEM_ITEMS.map(({ href, label, icon: Icon }) => (
-              <Link
+            {SYSTEM_ITEMS.map(({ href, label, icon }) => (
+              <NavItem
                 key={href}
                 href={href}
-                title={!sidebarOpen ? label : undefined}
-              >
-                <div
-                  className={`
-                    flex items-center rounded-2xl py-3 cursor-pointer
-                    transition-all duration-200 hover:bg-white/10
-                    ${sidebarOpen ? "gap-3 px-4 justify-start" : "justify-center px-0"}
-                  `}
-                >
-                  <Icon size={20} className="shrink-0" />
-                  {sidebarOpen && (
-                    <span className="whitespace-nowrap text-sm font-medium">
-                      {label}
-                    </span>
-                  )}
-                </div>
-              </Link>
+                label={label}
+                icon={icon}
+                isActive={isActive(href)}
+                sidebarOpen={sidebarOpen}
+              />
             ))}
           </div>
         </div>

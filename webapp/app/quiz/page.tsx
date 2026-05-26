@@ -6,16 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { User, CreditCard, Upload, Info, Rocket, IdCard } from "lucide-react";
 
 type QuizPhase = "setup" | "taking" | "results";
-
 interface QuizAnswer {
   [questionIndex: number]: string;
 }
-
 interface TopicStat {
   correct: number;
   total: number;
@@ -31,8 +28,8 @@ export default function QuizPage() {
   const [currentQ, setCurrentQ] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [startTime, setStartTime] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // Timer countdown
   useEffect(() => {
     if (phase !== "taking" || timeLeft <= 0) return;
     const t = setInterval(() => {
@@ -48,9 +45,7 @@ export default function QuizPage() {
     return () => clearInterval(t);
   }, [phase, timeLeft]);
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const parseFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -66,6 +61,18 @@ export default function QuizPage() {
     reader.readAsText(file);
   };
 
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) parseFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) parseFile(file);
+  };
+
   const startQuiz = () => {
     if (!studentName.trim()) {
       toast.error("Nhập họ tên trước");
@@ -75,17 +82,15 @@ export default function QuizPage() {
       toast.error("Upload đề thi trước");
       return;
     }
-    const totalSeconds = mcqs.length * 90; // 1.5 phút/câu
-    setTimeLeft(totalSeconds);
+    setTimeLeft(mcqs.length * 90);
     setStartTime(Date.now());
     setCurrentQ(0);
     setAnswers({});
     setPhase("taking");
   };
 
-  const selectAnswer = (key: string) => {
+  const selectAnswer = (key: string) =>
     setAnswers((prev) => ({ ...prev, [currentQ]: key }));
-  };
 
   const handleSubmit = () => {
     const unanswered = mcqs.map((_, i) => i).filter((i) => !answers[i]);
@@ -101,7 +106,6 @@ export default function QuizPage() {
     setPhase("results");
   };
 
-  // Results calculation
   const calcResults = () => {
     let correct = 0;
     const topicStats: Record<string, TopicStat> = {};
@@ -135,87 +139,342 @@ export default function QuizPage() {
   // ── SETUP PHASE ─────────────────────────────────────────────
   if (phase === "setup")
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center p-4">
-        <Card className="w-full max-w-lg shadow-2xl">
-          <CardHeader className="text-center">
-            <div className="text-4xl mb-2">🎯</div>
-            <CardTitle className="text-2xl">Quiz Mode — Sinh viên</CardTitle>
-            <p className="text-slate-500 text-sm">
+      <div
+        className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 60% at 50% 40%, #1a1060 0%, #0d0730 40%, #06041a 100%)",
+        }}
+      >
+        {/* Deep background glow blobs */}
+        <div className="pointer-events-none absolute inset-0">
+          {/* Left cyan-blue glow */}
+          <div
+            style={{
+              position: "absolute",
+              top: "15%",
+              left: "-5%",
+              width: 420,
+              height: 420,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle, rgba(30,120,255,0.45) 0%, transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+          {/* Right purple glow */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: "10%",
+              right: "-5%",
+              width: 460,
+              height: 460,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle, rgba(140,60,255,0.40) 0%, transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+          {/* Center subtle glow behind card */}
+          <div
+            style={{
+              position: "absolute",
+              top: "30%",
+              left: "25%",
+              width: 600,
+              height: 400,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle, rgba(80,50,200,0.25) 0%, transparent 70%)",
+              filter: "blur(60px)",
+            }}
+          />
+          {/* Dot grid */}
+          <svg
+            className="absolute inset-0 w-full h-full opacity-[0.07]"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <defs>
+              <pattern
+                id="dots"
+                x="0"
+                y="0"
+                width="28"
+                height="28"
+                patternUnits="userSpaceOnUse"
+              >
+                <circle cx="1.5" cy="1.5" r="1.5" fill="white" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#dots)" />
+          </svg>
+        </div>
+
+        {/* Card — gradient from lavender-white top to pure white bottom */}
+        <div
+          className="relative z-10 w-full max-w-[560px] rounded-[28px] p-8 shadow-[0_40px_100px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.8)]"
+          style={{
+            background:
+              "linear-gradient(160deg, #eef0ff 0%, #f5f3ff 30%, #ffffff 65%)",
+            border: "1px solid rgba(180,170,255,0.3)",
+          }}
+        >
+          {/* Subtle inner top shimmer */}
+          <div
+            className="absolute top-0 left-0 right-0 h-px rounded-t-[28px]"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, rgba(160,140,255,0.6), transparent)",
+            }}
+          />
+
+          {/* Header */}
+          <div className="text-center mb-4">
+            {/* Icon with gradient glow */}
+            <div className="inline-flex relative mb-2">
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-lg"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #ffffff 0%, #f0eeff 100%)",
+                  boxShadow:
+                    "0 8px 32px rgba(100,80,255,0.25), 0 2px 8px rgba(0,0,0,0.1)",
+                  border: "1px solid rgba(180,160,255,0.4)",
+                }}
+              >
+                🎯
+              </div>
+            </div>
+            <h1 className="text-[1.6rem] font-extrabold text-slate-800 tracking-tight">
+              Quiz Mode —{" "}
+              <span
+                style={{
+                  background: "linear-gradient(90deg, #5b6ef5, #9b59f5)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                Sinh viên
+              </span>
+            </h1>
+            <p className="text-sm text-slate-500 mt-1.5">
               Làm bài trắc nghiệm và nhận kết quả ngay
             </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Họ tên</Label>
-                <Input
-                  className="mt-1"
-                  placeholder="Nguyễn Văn A"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>MSSV</Label>
-                <Input
-                  className="mt-1"
-                  placeholder="22521234"
-                  value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Upload đề thi JSON</Label>
-              <div className="mt-1 border-2 border-dashed border-slate-200 rounded-lg p-4 text-center">
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleUpload}
-                  className="hidden"
-                  id="file-upload"
-                  suppressHydrationWarning
-                />
-                <label htmlFor="file-upload" className="cursor-pointer">
-                  <div className="text-2xl mb-1">📁</div>
-                  <p className="text-sm text-slate-500">
-                    {mcqs.length > 0
-                      ? `✅ ${mcqs.length} câu hỏi đã load`
-                      : "Click để chọn file JSON"}
-                  </p>
+          </div>
+
+          {/* Name + MSSV */}
+          <div className="grid grid-cols-2 gap-3 mb-2">
+            {[
+              {
+                label: "Họ tên",
+                placeholder: "Nguyễn Văn A",
+                icon: <User size={18} strokeWidth={2.5} />,
+                val: studentName,
+                set: setStudentName,
+              },
+              {
+                label: "MSSV",
+                placeholder: "22521234",
+                icon: <IdCard size={20} strokeWidth={2.5} />,
+                val: studentId,
+                set: setStudentId,
+              },
+            ].map(({ label, placeholder, icon, val, set }) => (
+              <div key={label}>
+                <label className="text-sm font-bold text-slate-800 mb-1 block">
+                  {label}
                 </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400">
+                    {icon}
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={placeholder}
+                    value={val}
+                    onChange={(e) => set(e.target.value)}
+                    suppressHydrationWarning
+                    className="w-full h-11 pl-10 pr-3 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 transition focus:outline-none"
+                    style={{
+                      background: "rgba(255,255,255,0.85)",
+                      border: "1.5px solid rgba(180,160,255,0.35)",
+                      boxShadow: "0 2px 8px rgba(100,80,200,0.07)",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "rgba(100,90,255,0.6)";
+                      e.target.style.boxShadow =
+                        "0 0 0 3px rgba(100,90,255,0.12)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "rgba(180,160,255,0.35)";
+                      e.target.style.boxShadow =
+                        "0 2px 8px rgba(100,80,200,0.07)";
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-            {mcqs.length > 0 && (
-              <div className="bg-slate-50 rounded-lg p-3 text-sm space-y-1">
-                <div className="flex justify-between">
-                  <span>Số câu hỏi:</span>
-                  <strong>{mcqs.length}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Thời gian:</span>
-                  <strong>{Math.ceil(mcqs.length * 1.5)} phút</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Topics:</span>
-                  <strong>
-                    {Array.from(new Set(mcqs.map((m) => m.topic))).length} topic
-                  </strong>
-                </div>
-              </div>
-            )}
-            <Button
-              onClick={startQuiz}
-              className="w-full h-12 text-base"
-              disabled={mcqs.length === 0}
+            ))}
+          </div>
+
+          {/* Upload zone */}
+          <div className="mb-3">
+            <label className="text-sm font-bold text-slate-800 mb-1 block">
+              Upload đề thi JSON
+            </label>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleUpload}
+              className="hidden"
+              id="file-upload"
+              suppressHydrationWarning
+            />
+            <label
+              htmlFor="file-upload"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              className="flex flex-col items-center justify-center gap-2.5 w-full rounded-2xl cursor-pointer transition-all py-4"
+              style={{
+                background: isDragging
+                  ? "rgba(90,100,255,0.08)"
+                  : mcqs.length > 0
+                    ? "rgba(50,200,100,0.06)"
+                    : "rgba(255,255,255,0.6)",
+                border: `2px dashed ${isDragging ? "rgba(90,100,255,0.7)" : mcqs.length > 0 ? "rgba(50,180,100,0.5)" : "rgba(170,160,230,0.5)"}`,
+                boxShadow: isDragging
+                  ? "0 0 0 4px rgba(90,100,255,0.08)"
+                  : "none",
+              }}
             >
-              🚀 Bắt đầu làm bài
-            </Button>
-            <p className="text-center text-xs text-slate-400">
-              Không có đề thi? Nhờ giảng viên export JSON từ hệ thống
-            </p>
-          </CardContent>
-        </Card>
+              {mcqs.length > 0 ? (
+                <>
+                  <div className="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center text-2xl shadow-sm">
+                    ✅
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-green-700">
+                      {mcqs.length} câu hỏi đã load
+                    </p>
+                    <p className="text-xs text-green-600/70 mt-0.5">
+                      Click để thay file khác
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Upload icon with gradient background + glow */}
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #5b8ef5 0%, #7b5bf5 100%)",
+                      boxShadow: "0 8px 24px rgba(100,100,255,0.40)",
+                    }}
+                  >
+                    <Upload size={24} className="text-white" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-slate-700">
+                      Kéo & thả file JSON vào đây
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Hoặc click để chọn file
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100/80 text-[11px] text-slate-500">
+                    <Info size={11} />
+                    Hỗ trợ file .json, dung lượng tối đa 10MB
+                  </div>
+                </>
+              )}
+            </label>
+          </div>
+
+          {/* Info strip when loaded */}
+          {mcqs.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              {[
+                { label: "Số câu", value: String(mcqs.length) },
+                {
+                  label: "Thời gian",
+                  value: `${Math.ceil(mcqs.length * 1.5)} phút`,
+                },
+                {
+                  label: "Topics",
+                  value: `${Array.from(new Set(mcqs.map((m) => m.topic))).length} topic`,
+                },
+              ].map(({ label, value }) => (
+                <div
+                  key={label}
+                  className="rounded-xl py-2.5 px-3 text-center"
+                  style={{
+                    background: "rgba(255,255,255,0.7)",
+                    border: "1px solid rgba(170,160,230,0.3)",
+                  }}
+                >
+                  <p className="text-base font-bold text-slate-800">{value}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Start button — gradient blue-purple, full glow */}
+          <button
+            onClick={startQuiz}
+            disabled={mcqs.length === 0}
+            className="w-full h-12 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-5"
+            style={{
+              background:
+                mcqs.length === 0
+                  ? "linear-gradient(90deg, #8888aa, #9988bb)"
+                  : "linear-gradient(90deg, #4a6cf7 0%, #7a3cf7 50%, #9b3af5 100%)",
+              boxShadow:
+                mcqs.length === 0
+                  ? "none"
+                  : "0 8px 32px rgba(100,60,240,0.45), 0 2px 8px rgba(100,60,240,0.3)",
+            }}
+            onMouseEnter={(e) => {
+              if (mcqs.length > 0) {
+                (e.currentTarget as HTMLButtonElement).style.transform =
+                  "translateY(-1px)";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                  "0 12px 40px rgba(100,60,240,0.55), 0 2px 8px rgba(100,60,240,0.35)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                "translateY(0)";
+              if (mcqs.length > 0)
+                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                  "0 8px 32px rgba(100,60,240,0.45), 0 2px 8px rgba(100,60,240,0.3)";
+            }}
+          >
+            <Rocket size={16} />
+            Bắt đầu làm bài
+          </button>
+
+          {/* Footer hint */}
+          <p className="text-center text-xs text-slate-500 flex items-center justify-center gap-1">
+            💡 Không có đề thi? Nhờ giảng viên{" "}
+            <span
+              className="font-semibold"
+              style={{
+                background: "linear-gradient(90deg, #4a6cf7, #9b3af5)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              export JSON
+            </span>{" "}
+            từ hệ thống
+          </p>
+        </div>
       </div>
     );
 
@@ -228,7 +487,6 @@ export default function QuizPage() {
 
     return (
       <div className="min-h-screen bg-slate-50">
-        {/* Header bar */}
         <div className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
           <div className="flex items-center gap-3">
             <span className="font-semibold text-sm">{studentName}</span>
@@ -246,7 +504,6 @@ export default function QuizPage() {
           </Button>
         </div>
 
-        {/* Progress */}
         <div className="bg-white px-4 py-2 border-b">
           <Progress value={progress} className="h-1.5" />
           <div
@@ -256,7 +513,6 @@ export default function QuizPage() {
         </div>
 
         <div className="max-w-2xl mx-auto p-4 space-y-4">
-          {/* Question */}
           <Card>
             <CardContent className="p-5">
               <div className="flex items-start gap-3">
@@ -270,9 +526,7 @@ export default function QuizPage() {
             </CardContent>
           </Card>
 
-          {/* Options */}
           <div className="space-y-2">
-            console.log("MCQ =", mcq);
             {Object.entries(mcq?.options || {}).map(([key, value]) => (
               <button
                 key={key}
@@ -293,13 +547,11 @@ export default function QuizPage() {
                 >
                   {key}
                 </span>
-
                 {String(value)}
               </button>
             ))}
           </div>
 
-          {/* Navigation */}
           <div className="flex justify-between pt-2">
             <Button
               variant="outline"
@@ -349,7 +601,6 @@ export default function QuizPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4">
       <div className="max-w-2xl mx-auto space-y-4">
-        {/* Score card */}
         <Card className="text-center overflow-hidden">
           <div className="bg-gradient-to-r from-slate-800 to-slate-600 p-8 text-white">
             <h2 className="text-lg font-medium opacity-80 mb-1">
@@ -358,7 +609,7 @@ export default function QuizPage() {
             <div className="text-7xl font-bold">{score.toFixed(1)}</div>
             <div className="text-xl opacity-80">/ 10.0</div>
             <div
-              className={`text-xl font-semibold mt-2 ${grade.color.replace("text-", "text-").replace("-600", "-300")}`}
+              className={`text-xl font-semibold mt-2 ${grade.color.replace("-600", "-300")}`}
             >
               {grade.label}
             </div>
@@ -388,7 +639,6 @@ export default function QuizPage() {
           </CardContent>
         </Card>
 
-        {/* Topic analysis */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">📈 Phân tích theo topic</CardTitle>
@@ -418,7 +668,6 @@ export default function QuizPage() {
           </CardContent>
         </Card>
 
-        {/* Detailed review */}
         <div className="space-y-2">
           <h3 className="font-semibold text-slate-700">🔍 Chi tiết từng câu</h3>
           {details.map(({ mcq, selected, isCorrect }, i) => (
@@ -445,7 +694,8 @@ export default function QuizPage() {
                               : "text-slate-500"
                         }`}
                       >
-                        {isCorrectAns ? "✓" : isSelected ? "✗" : "○"} {k}. {v}
+                        {isCorrectAns ? "✓" : isSelected ? "✗" : "○"} {k}.{" "}
+                        {String(v)}
                       </div>
                     );
                   })}
