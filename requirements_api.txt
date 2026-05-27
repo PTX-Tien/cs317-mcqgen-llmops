@@ -2,6 +2,7 @@ arize-phoenix==14.16.0
 arize-phoenix-client==2.5.0
 arize-phoenix-evals==3.0.0
 arize-phoenix-otel==0.16.0
+langfuse>=4.0.0,<5.0.0
 celery==5.6.3
 chromadb==1.5.8
 fastapi==0.136.1

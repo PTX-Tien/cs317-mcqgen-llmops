@@ -7,6 +7,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from celery import Celery
 from dotenv import load_dotenv
+from monitoring.langfuse_tracing import (
+    flush_langfuse,
+    langfuse_attributes,
+    langfuse_observation,
+    score_langfuse_trace,
+    update_langfuse_observation,
+)
 
 load_dotenv()
 
@@ -21,9 +28,25 @@ celery_app.conf.update(
 )
 
 @celery_app.task(bind=True)
-def run_mcq_pipeline(self, topics: list, output_name: str = "exam", retrieval_mode: str = "auto"):
+def run_mcq_pipeline(
+    self,
+    topics: list,
+    output_name: str = "exam",
+    retrieval_mode: str = "auto",
+    trace_payload: dict | None = None,
+):
     """Celery task: chạy MCQ pipeline async, update progress."""
+    trace_payload = trace_payload or {}
+    task_id = trace_payload.get("task_id") or self.request.id
     total_questions = sum(int(t.get("n", 1)) for t in topics)
+    trace_metadata = {
+        **trace_payload,
+        "task_id": task_id,
+        "output_name": output_name,
+        "retrieval_mode": retrieval_mode,
+        "n_questions": total_questions,
+        "topic_count": len(topics),
+    }
 
     def publish_progress(progress: int, step: str, **meta):
         payload = {
@@ -46,9 +69,41 @@ def run_mcq_pipeline(self, topics: list, output_name: str = "exam", retrieval_mo
             output_name=output_name,
             progress_callback=publish_progress,
             retrieval_mode=retrieval_mode,
+            trace_payload=trace_metadata,
         )
 
-    result = asyncio.run(_run())
+    try:
+        with langfuse_attributes(
+            user_id=trace_payload.get("user_id"),
+            session_id=task_id,
+            tags=["mcqgen", "celery", "generation"],
+            metadata=trace_metadata,
+        ):
+            with langfuse_observation(
+                "celery.run_mcq_pipeline",
+                as_type="span",
+                input={"topics": topics, "output_name": output_name},
+                metadata=trace_metadata,
+            ) as lf_span:
+                result = asyncio.run(_run())
+                accepted = int(result.get("accepted", 0)) if isinstance(result, dict) else 0
+                failed = int(result.get("failed", 0)) if isinstance(result, dict) else 0
+                update_langfuse_observation(
+                    lf_span,
+                    output={
+                        "accepted": accepted,
+                        "failed": failed,
+                        "output_file": result.get("output_file") if isinstance(result, dict) else None,
+                    },
+                    metadata={**trace_metadata, "accepted": accepted, "failed": failed},
+                )
+                score_langfuse_trace("accepted_questions", float(accepted))
+                score_langfuse_trace("failed_questions", float(failed))
+    except Exception as exc:
+        score_langfuse_trace("job_failed", 1.0, comment=str(exc))
+        raise
+    finally:
+        flush_langfuse()
 
     publish_progress(100, "done", current_question=total_questions)
     return result
