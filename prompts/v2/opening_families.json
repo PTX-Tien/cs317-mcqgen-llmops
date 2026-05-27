@@ -1,0 +1,167 @@
+{
+  "version": "2.0-phase1",
+  "families": [
+    {
+      "id": "mechanism_reasoning",
+      "question_form": "giải thích cơ chế hoạt động",
+      "required_intent": "Kiểm tra cơ chế hoạt động, vai trò kỹ thuật, hoặc lý do của một mô hình, thuật toán, hàm, hoặc kỹ thuật.",
+      "allowed_opening_patterns": [
+        "Cơ chế nào giúp...",
+        "Yếu tố nào quyết định...",
+        "Lý do chính khiến...",
+        "Vai trò chính của..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các mô hình phân lớp sau...",
+        "Mô hình nào sau đây...",
+        "Trong quá trình..."
+      ],
+      "style_note": "Đi thẳng vào cơ chế hoặc vai trò kỹ thuật, không hỏi kiểu chọn tên mô hình từ danh sách.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "comparison",
+      "question_form": "so sánh khái niệm hoặc phương pháp",
+      "required_intent": "Kiểm tra khả năng phân biệt hai khái niệm, mô hình, thao tác, độ đo, hoặc kết quả.",
+      "allowed_opening_patterns": [
+        "Điểm khác biệt quan trọng giữa...",
+        "Tính chất nào giúp phân biệt...",
+        "So với..., phương pháp..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các phương pháp sau...",
+        "Đáp án nào sau đây..."
+      ],
+      "style_note": "Phải nêu rõ trục so sánh, không chỉ liệt kê các phương án.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "scenario_application",
+      "question_form": "tình huống áp dụng ngắn",
+      "required_intent": "Kiểm tra khả năng áp dụng kiến thức vào một tình huống học thuật ngắn.",
+      "allowed_opening_patterns": [
+        "Với một tập dữ liệu có đặc điểm...",
+        "Giả sử cần xử lý...",
+        "Trong một bài toán..., lựa chọn nào..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các kỹ thuật sau...",
+        "Hãy xác định..."
+      ],
+      "style_note": "Tình huống phải ngắn, đúng ngữ cảnh môn học, không biến thành case study dài.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "parameter_effect",
+      "question_form": "tác động của tham số hoặc điều kiện",
+      "required_intent": "Kiểm tra hệ quả khi thay đổi tham số, cấu hình, dữ liệu, hoặc điều kiện.",
+      "allowed_opening_patterns": [
+        "Nếu tăng giá trị...",
+        "Khi cố định..., việc thay đổi...",
+        "Tác động chính của tham số..."
+      ],
+      "forbidden_opening_patterns": [
+        "Thông số nào sau đây...",
+        "Trong quá trình huấn luyện..."
+      ],
+      "style_note": "Tập trung vào hệ quả của thay đổi, không hỏi định nghĩa thuần túy.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "formula_interpretation",
+      "question_form": "diễn giải công thức hoặc thành phần",
+      "required_intent": "Kiểm tra ý nghĩa của công thức, loss, metric, thành phần, hoặc đại lượng.",
+      "allowed_opening_patterns": [
+        "Trong công thức..., thành phần nào...",
+        "Đại lượng nào thể hiện...",
+        "Ý nghĩa của thành phần..."
+      ],
+      "forbidden_opening_patterns": [
+        "Công thức nào sau đây...",
+        "Trong các đáp án sau..."
+      ],
+      "style_note": "Chỉ dùng khi context có công thức, metric, loss, hoặc thành phần rõ ràng.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "misconception_check",
+      "question_form": "kiểm tra lỗi hiểu sai",
+      "required_intent": "Kiểm tra nhận định dễ nhầm lẫn hoặc lỗi hiểu sai phổ biến của sinh viên.",
+      "allowed_opening_patterns": [
+        "Nhận định nào sau đây dễ gây hiểu sai về...",
+        "Cách hiểu nào sau đây không chính xác về...",
+        "Dấu hiệu nào cho thấy sinh viên đang nhầm lẫn..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các mô hình sau...",
+        "Mô hình nào..."
+      ],
+      "style_note": "Stem hướng đến lỗi hiểu sai, nhưng P1 chưa sinh distractor.",
+      "suitable_for": ["G1", "G2", "G3"]
+    },
+    {
+      "id": "limitation_awareness",
+      "question_form": "hạn chế hoặc điều kiện áp dụng",
+      "required_intent": "Kiểm tra hạn chế, điều kiện áp dụng, rủi ro, hoặc trường hợp không phù hợp.",
+      "allowed_opening_patterns": [
+        "Hạn chế nào cần lưu ý khi...",
+        "Trong trường hợp nào..., phương pháp này kém phù hợp?",
+        "Rủi ro chính khi áp dụng..."
+      ],
+      "forbidden_opening_patterns": [
+        "Phương pháp nào sau đây...",
+        "Trong các kỹ thuật..."
+      ],
+      "style_note": "Hỏi về caveat hoặc điều kiện không nên dùng, không hỏi định nghĩa thuần túy.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "best_choice",
+      "question_form": "chọn phương án phù hợp nhất",
+      "required_intent": "Kiểm tra khả năng chọn cách làm phù hợp với mục tiêu hoặc điều kiện rõ ràng.",
+      "allowed_opening_patterns": [
+        "Trường hợp nào phù hợp nhất để...",
+        "Lựa chọn nào hợp lý nhất khi...",
+        "Nếu mục tiêu là..., cách làm nào..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các phương pháp sau...",
+        "Đáp án nào đúng..."
+      ],
+      "style_note": "Phải có tiêu chí lựa chọn rõ ràng để tránh câu hỏi đoán mò.",
+      "suitable_for": ["G2", "G3"]
+    },
+    {
+      "id": "code_api",
+      "question_form": "hỏi về code, hàm, API, hoặc tham số",
+      "required_intent": "Kiểm tra cách dùng hàm, tham số, API, hoặc kết quả code trong phạm vi môn học.",
+      "allowed_opening_patterns": [
+        "Trong scikit-learn, tham số nào...",
+        "Với đoạn code ngắn sau, kết quả nào...",
+        "Hàm nào được dùng để..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong các câu lệnh sau...",
+        "Hãy cho biết..."
+      ],
+      "style_note": "Chỉ dùng API hoặc thư viện có trong context hoặc trong phạm vi CS116.",
+      "suitable_for": ["G1", "G2"]
+    },
+    {
+      "id": "process_purpose",
+      "question_form": "mục đích của một bước xử lý",
+      "required_intent": "Kiểm tra mục đích của một bước trong tiền xử lý, huấn luyện, đánh giá, hoặc pipeline ML.",
+      "allowed_opening_patterns": [
+        "Mục đích chính của bước...",
+        "Bước ... giúp giải quyết vấn đề nào?",
+        "Vì sao cần thực hiện..."
+      ],
+      "forbidden_opening_patterns": [
+        "Trong quá trình...",
+        "Khi xây dựng..."
+      ],
+      "style_note": "Hỏi về mục đích hoặc vai trò của bước, tránh mở đầu chung chung.",
+      "suitable_for": ["G1", "G2", "G3"]
+    }
+  ]
+}
