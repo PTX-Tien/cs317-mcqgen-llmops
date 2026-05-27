@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { api, WS_URL } from "@/lib/api"
-import { TopicConfig, MCQ, GenerationState, RetrievalMode } from "@/types"
+import { TopicConfig, MCQ, GenerationState } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
+import { FileJson, FileText, KeyRound, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react"
 
 // ── Constants ────────────────────────────────────────────────────
 const CHAPTERS: Record<string, string> = {
@@ -33,6 +34,7 @@ const TOPIC_SUGGESTIONS: Record<string, string[]> = {
   ch08: ["CNN Neural Networks", "Convolution Layer", "Pooling Layer"],
   ch10: ["Random Forest", "Boosting", "Bagging"],
   ch02: ["NumPy array operations", "Pandas DataFrame"],
+  ch03: ["Data pipeline workflow", "Exploratory Data Analysis", "Data visualization"],
   ch05: ["Classification Metrics", "Cross-validation"],
   ch06: ["K-Means Clustering", "PCA"],
   ch07a: ["Linear Regression", "Regularization"],
@@ -47,16 +49,7 @@ const PIPELINE_STEPS = [
   { label: "Assemble", icon: "📝" },
   { label: "Evaluate", icon: "✅" },
 ]
-const EST_MIN_PER_QUESTION_BY_MODE: Record<RetrievalMode, number> = {
-  fast: 7,
-  auto: 8,
-  quality: 10,
-}
-const RETRIEVAL_MODES: Array<{ value: RetrievalMode; label: string }> = [
-  { value: "fast", label: "Nhanh" },
-  { value: "auto", label: "Cân bằng" },
-  { value: "quality", label: "Chất lượng cao" },
-]
+const DEFAULT_RETRIEVAL_MODE = "auto"
 
 function getApiErrorDetail(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("response" in error)) {
@@ -74,6 +67,24 @@ function elapsedSeconds(startMs: number): number {
   return (nowMs() - startMs) / 1000
 }
 
+function normalizeExamName(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+    .toLowerCase()
+  return normalized || "de_thi"
+}
+
+function createEmptyTopic(topicId: string): TopicConfig {
+  return { topic_id: topicId, chapter_id: "ch07b", topic: "", difficulty: "G2", n: 2 }
+}
+
 // ── Topic Row component ──────────────────────────────────────────
 function TopicRow({ index, topic, onChange, onRemove }: {
   index: number
@@ -82,66 +93,82 @@ function TopicRow({ index, topic, onChange, onRemove }: {
   onRemove: () => void
 }) {
   const suggestions = TOPIC_SUGGESTIONS[topic.chapter_id] || []
+  const selectedChapter = CHAPTERS[topic.chapter_id] || "Chưa chọn chapter"
+  const questionCount = Number.isFinite(topic.n) ? Math.max(1, topic.n) : 1
+
   return (
-    <Card className="p-4 space-y-3 bg-slate-50">
-      <div className="flex items-center justify-between">
-        <span className="font-medium text-sm text-slate-600">Topic {index + 1}</span>
-        <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-400 hover:text-red-600 h-7 px-2">✕</Button>
+    <Card className="overflow-visible border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-800">Chủ đề {String(index + 1).padStart(2, "0")}</p>
+          <p className="mt-0.5 truncate text-xs text-slate-500">{selectedChapter}</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onRemove}
+          aria-label={`Xóa chủ đề ${index + 1}`}
+          className="text-slate-400 hover:bg-red-50 hover:text-red-600"
+        >
+          <Trash2 size={15} />
+        </Button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <Label className="text-xs">Chapter</Label>
+
+      <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(0,0.7fr)_minmax(96px,0.35fr)]">
+        <div className="min-w-0 max-w-full">
+          <Label className="text-xs font-medium uppercase text-slate-500">Chapter</Label>
           <Select value={topic.chapter_id} onValueChange={(v) => onChange({ ...topic, chapter_id: v ?? "", topic: "" })}>
-            <SelectTrigger className="h-9 mt-1">
+            <SelectTrigger className="mt-2 h-11 w-full min-w-0 bg-white px-3 text-left">
               <SelectValue placeholder="Chọn chapter" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent align="start" className="z-[100] max-h-72">
               {Object.entries(CHAPTERS).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v}</SelectItem>
+                <SelectItem key={k} value={k} className="py-2">{v}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <Label className="text-xs">Topic cụ thể</Label>
+
+        <div className="min-w-0">
+          <Label className="text-xs font-medium uppercase text-slate-500">Topic cụ thể</Label>
           <Select value={topic.topic} onValueChange={(v) => onChange({ ...topic, topic: v ?? "" })}>
-            <SelectTrigger className="h-9 mt-1">
-              <SelectValue placeholder="Chọn hoặc nhập topic" />
+            <SelectTrigger className="mt-2 h-11 w-full min-w-0 bg-white px-3 text-left">
+              <SelectValue placeholder="Chọn topic" />
             </SelectTrigger>
-            <SelectContent>
-              {suggestions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            <SelectContent align="start" className="z-[100] max-h-72">
+              {suggestions.map((suggestion) => (
+                <SelectItem key={suggestion} value={suggestion} className="py-2">
+                  {suggestion}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
-          <Input
-            className="h-9 mt-1 text-xs"
-            placeholder="Hoặc nhập tên topic..."
-            value={topic.topic}
-            onChange={(e) => onChange({ ...topic, topic: e.target.value })}
-          />
         </div>
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <Label className="text-xs">Độ khó</Label>
-            <Select value={topic.difficulty} onValueChange={(v) => onChange({ ...topic, difficulty: v ?? "G2" })}>
-              <SelectTrigger className="h-9 mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="G1">G1 — Nhớ/Biết</SelectItem>
-                <SelectItem value="G2">G2 — Hiểu/Áp dụng</SelectItem>
-                <SelectItem value="G3">G3 — Phân tích</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-20">
-            <Label className="text-xs">Số câu</Label>
-            <Input
-              type="number" min={1} max={5}
-              className="h-9 mt-1 text-center"
-              value={topic.n}
-              onChange={(e) => onChange({ ...topic, n: parseInt(e.target.value) || 1 })}
-            />
-          </div>
+
+        <div className="min-w-0">
+          <Label className="text-xs font-medium uppercase text-slate-500">Độ khó</Label>
+          <Select value={topic.difficulty} onValueChange={(v) => onChange({ ...topic, difficulty: v ?? "G2" })}>
+            <SelectTrigger className="mt-2 h-11 w-full min-w-0 bg-white px-3 text-left">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="z-[100] max-h-72">
+              <SelectItem value="G1" className="py-2">G1 - Nhớ/Biết</SelectItem>
+              <SelectItem value="G2" className="py-2">G2 - Hiểu/Áp dụng</SelectItem>
+              <SelectItem value="G3" className="py-2">G3 - Phân tích</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="min-w-0">
+          <Label className="text-xs font-medium uppercase text-slate-500">Số câu</Label>
+          <Input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            className="mt-2 h-11 w-full max-w-full bg-white text-center text-sm font-semibold"
+            value={questionCount}
+            onChange={(e) => onChange({ ...topic, n: Math.max(1, parseInt(e.target.value) || 1) })}
+          />
         </div>
       </div>
     </Card>
@@ -151,41 +178,44 @@ function TopicRow({ index, topic, onChange, onRemove }: {
 // ── Main page ────────────────────────────────────────────────────
 export default function GeneratePage() {
   const router = useRouter()
-  const [examName, setExamName] = useState("exam_01")
+  const [examName, setExamName] = useState("Đề số 1")
   const [topics, setTopics] = useState<TopicConfig[]>([
     { topic_id: "t1", chapter_id: "ch07b", topic: "Decision Trees", difficulty: "G2", n: 3 }
   ])
-  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto")
   const [genState, setGenState] = useState<GenerationState>({ status: "idle" })
   const [mcqs, setMcqs] = useState<MCQ[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const taskIdRef = useRef<string | null>(null)
+  const nextTopicIndexRef = useRef(2)
 
   useEffect(() => {
     if (!localStorage.getItem("access_token")) router.push("/login")
   }, [router])
 
-  const totalQ = topics.reduce((s, t) => s + t.n, 0)
+  const totalQ = topics.reduce((s, t) => s + Math.max(1, t.n || 1), 0)
   const validTopics = topics.filter((t) => t.chapter_id && t.topic.trim())
-  const localEstimatedRuntime = Math.max(
-    1,
-    Math.ceil(totalQ * EST_MIN_PER_QUESTION_BY_MODE[retrievalMode])
-  )
+  const systemExamName = normalizeExamName(examName)
 
   const addTopic = () => {
-    if (topics.length >= 5) return
-    setTopics([...topics, { topic_id: `t${topics.length + 1}`, chapter_id: "ch07b", topic: "", difficulty: "G2", n: 2 }])
+    const nextTopicId = `t${nextTopicIndexRef.current}`
+    nextTopicIndexRef.current += 1
+    setTopics([...topics, createEmptyTopic(nextTopicId)])
   }
 
   const handleGenerate = async () => {
     if (validTopics.length === 0) { toast.error("Vui lòng thêm ít nhất 1 topic"); return }
+    if (!examName.trim()) { toast.error("Vui lòng nhập tên đề thi"); return }
     setGenState({ status: "submitting" })
     setMcqs([])
     try {
       const { data } = await api.post("/generate", {
-        topics: validTopics,
-        output_name: examName,
-        retrieval_mode: retrievalMode,
+        topics: validTopics.map((topic) => ({
+          ...topic,
+          topic: topic.topic.trim(),
+          n: Math.max(1, topic.n || 1),
+        })),
+        output_name: systemExamName,
+        retrieval_mode: DEFAULT_RETRIEVAL_MODE,
       })
       taskIdRef.current = data.task_id
       setGenState({
@@ -193,14 +223,14 @@ export default function GeneratePage() {
         position: data.queue_position,
         estimatedWait: data.estimated_total_min ?? data.estimated_wait_min,
         queueWait: data.queue_wait_min ?? 0,
-        estimatedRuntime: data.estimated_runtime_min ?? localEstimatedRuntime,
+        estimatedRuntime: data.estimated_runtime_min ?? 0,
         jobsAhead: data.jobs_ahead ?? Math.max(0, data.queue_position - 1),
         taskId: data.task_id,
         questionConcurrency: data.generation_concurrency,
         llmConcurrency: data.llm_concurrency,
         vllmMaxNumSeqs: data.vllm_max_num_seqs,
       })
-      toast.success(`Job submitted! Position #${data.queue_position}`)
+      toast.success(`Đã gửi yêu cầu sinh câu hỏi. Vị trí #${data.queue_position}`)
       startWebSocket(data.task_id)
     } catch (e: unknown) {
       setGenState({ status: "failed", error: getApiErrorDetail(e) || "Lỗi kết nối API" })
@@ -298,21 +328,21 @@ export default function GeneratePage() {
   const downloadJson = () => {
     const blob = new Blob([JSON.stringify(mcqs, null, 2)], { type: "application/json" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob)
-    a.download = `${examName}_mcqs.json`; a.click()
+    a.download = `${systemExamName}_mcqs.json`; a.click()
   }
 
   const downloadPdf = async (withAnswers: boolean) => {
     if (genState.status !== "success") return
     const { data } = await api.get(`/export/pdf/${genState.taskId}?include_answers=${withAnswers}`, { responseType: "blob" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(data)
-    a.download = `${examName}_${withAnswers ? "answers" : "exam"}.pdf`; a.click()
+    a.download = `${systemExamName}_${withAnswers ? "answers" : "exam"}.pdf`; a.click()
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">⚡ Sinh câu hỏi trắc nghiệm</h1>
-        <p className="text-slate-500 text-sm mt-1">Chọn topics và cấu hình để sinh MCQ tự động</p>
+        <p className="text-slate-500 text-sm mt-1">Chọn chủ đề và cấu hình đề thi</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -323,24 +353,18 @@ export default function GeneratePage() {
             <CardContent className="space-y-3">
               <div>
                 <Label>Tên đề thi</Label>
-                <Input value={examName} onChange={(e) => setExamName(e.target.value)} className="mt-1" placeholder="exam_01" />
-              </div>
-              <div>
-                <Label>Chế độ RAG</Label>
-                <Select value={retrievalMode} onValueChange={(v) => setRetrievalMode((v ?? "auto") as RetrievalMode)}>
-                  <SelectTrigger className="h-9 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RETRIEVAL_MODES.map((mode) => (
-                      <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  value={examName}
+                  onChange={(e) => setExamName(e.target.value)}
+                  className="mt-1 h-10"
+                  placeholder="Ví dụ: Đề số 1"
+                />
+                <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  Mã lưu: <span className="font-medium text-slate-700">{systemExamName}</span>
+                </div>
               </div>
               <div className="text-sm text-slate-500">
                 <span className="font-medium">{validTopics.length} topic</span> • <span className="font-medium">{totalQ} câu hỏi</span>
-                <br /><span className="text-xs">Ước tính ~{localEstimatedRuntime} phút</span>
               </div>
             </CardContent>
           </Card>
@@ -348,17 +372,18 @@ export default function GeneratePage() {
           {/* Action buttons */}
           {genState.status === "idle" || genState.status === "failed" ? (
             <Button onClick={handleGenerate} className="w-full h-12 text-base" disabled={validTopics.length === 0}>
-              🚀 Sinh câu hỏi
+              <Sparkles size={17} />
+              Sinh câu hỏi
             </Button>
           ) : genState.status === "success" ? (
             <div className="space-y-2">
-              <Button onClick={downloadJson} variant="outline" className="w-full">📄 Download JSON</Button>
-              <Button onClick={() => downloadPdf(false)} variant="outline" className="w-full">📋 PDF Đề thi</Button>
-              <Button onClick={() => downloadPdf(true)} variant="outline" className="w-full">🔑 PDF Đáp án</Button>
-              <Button onClick={() => { setGenState({ status: "idle" }); setMcqs([]) }} className="w-full">+ Sinh đề mới</Button>
+              <Button onClick={downloadJson} variant="outline" className="w-full"><FileJson size={16} />Download JSON</Button>
+              <Button onClick={() => downloadPdf(false)} variant="outline" className="w-full"><FileText size={16} />PDF Đề thi</Button>
+              <Button onClick={() => downloadPdf(true)} variant="outline" className="w-full"><KeyRound size={16} />PDF Đáp án</Button>
+              <Button onClick={() => { setGenState({ status: "idle" }); setMcqs([]) }} className="w-full"><RotateCcw size={16} />Sinh đề mới</Button>
             </div>
           ) : (
-            <Button onClick={handleCancel} variant="destructive" className="w-full">✕ Hủy</Button>
+            <Button onClick={handleCancel} variant="destructive" className="w-full"><X size={16} />Hủy</Button>
           )}
 
           {genState.status === "failed" && (
@@ -374,14 +399,15 @@ export default function GeneratePage() {
           {(genState.status === "idle" || genState.status === "failed") && (
             <div className="space-y-3">
               {topics.map((t, i) => (
-                <TopicRow key={i} index={i} topic={t}
+                <TopicRow key={t.topic_id} index={i} topic={t}
                   onChange={(updated) => setTopics(topics.map((x, j) => j === i ? updated : x))}
                   onRemove={() => setTopics(topics.filter((_, j) => j !== i))}
                 />
               ))}
-              {topics.length < 5 && (
-                <Button variant="outline" onClick={addTopic} className="w-full border-dashed">+ Thêm topic</Button>
-              )}
+              <Button variant="outline" onClick={addTopic} className="h-11 w-full border-dashed">
+                <Plus size={16} />
+                Thêm topic
+              </Button>
             </div>
           )}
 
@@ -395,15 +421,6 @@ export default function GeneratePage() {
                   <p className="text-sm text-slate-500">
                     Vị trí #{genState.position} • {genState.jobsAhead > 0 ? `${genState.jobsAhead} job phía trước` : "đang chờ worker nhận job"}
                   </p>
-                  <p className="text-xs text-slate-500">
-                    Ước tính tổng ~{genState.estimatedWait} phút
-                    {genState.queueWait > 0 && ` (queue ~${genState.queueWait} phút, chạy ~${genState.estimatedRuntime} phút)`}
-                  </p>
-                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
-                    <p className="text-xs text-slate-500">
-                      vLLM: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
-                    </p>
-                  )}
                 </div>
               )}
               {genState.status === "running" && (
@@ -412,11 +429,6 @@ export default function GeneratePage() {
                     <span className="font-semibold text-sm">{genState.step}</span>
                     <span className="text-sm text-slate-500">Câu {genState.currentQ}/{genState.totalQ}</span>
                   </div>
-                  {(genState.questionConcurrency || genState.llmConcurrency || genState.vllmMaxNumSeqs) && (
-                    <div className="text-xs text-slate-500">
-                      vLLM batching: câu song song {genState.questionConcurrency ?? "—"} • LLM concurrency {genState.llmConcurrency ?? "—"} • max seqs {genState.vllmMaxNumSeqs ?? "—"}
-                    </div>
-                  )}
                   <Progress value={genState.progress} className="h-3" />
                   {/* Animated stepper */}
                   <div className="relative">

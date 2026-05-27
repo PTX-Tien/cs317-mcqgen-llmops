@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
     "arize-phoenix==14.16.0" \
     "arize-phoenix-otel==0.16.0" \
+    "langfuse>=4.0.0,<5.0.0" \
     "openinference-instrumentation==0.1.48" \
     "openinference-instrumentation-openai==0.1.45" \
     "openinference-semantic-conventions==0.1.29"
