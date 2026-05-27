@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
 mkdir -p $PROJECT/redis_data
@@ -13,25 +13,30 @@ conda activate mcqgen_v2 2>/dev/null
 export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+export PYTHONNOUSERSITE=1
 # Qwen2.5-7B-Instruct full precision is larger than one RTX 2080 Ti.
 # Use TP=4 so vLLM stays GPU-only. Override these two variables before running
 # this script if you need a strict GPU split between vLLM and RAG workers.
-export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-1,2,3,4}
-export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/thanhld/.cache/huggingface
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
+export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-2,4}
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
 # TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
 export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
-export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
-export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
-export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-1}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
 export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
 export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
 export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
 export MCQGEN_MAX_CONCURRENT_QUESTIONS=${MCQGEN_MAX_CONCURRENT_QUESTIONS:-4}
 export MCQGEN_LLM_MAX_CONCURRENCY=${MCQGEN_LLM_MAX_CONCURRENCY:-$VLLM_MAX_NUM_SEQS}
+export VLLM_PORT=${VLLM_PORT:-7681}
+export VLLM_URL=${VLLM_URL:-http://localhost:${VLLM_PORT}/v1}
+export VLLM_MODEL=mcqgen
+
 VLLM_CPU_OFFLOAD_ARGS=""
 if [ "$VLLM_CPU_OFFLOAD_GB" != "0" ] && [ "$VLLM_CPU_OFFLOAD_GB" != "0.0" ]; then
     VLLM_CPU_OFFLOAD_ARGS="--cpu-offload-gb $VLLM_CPU_OFFLOAD_GB"
@@ -80,7 +85,7 @@ log "vLLM max_model_len=$VLLM_MAX_MODEL_LEN max_num_seqs=$VLLM_MAX_NUM_SEQS | qu
 log "════════════════════════════════════"
 
 # ── STEP 1: Redis (synchronous — phải ready trước) ───────────────
-log "[1/5] Redis..."
+log "[1/6] Redis..."
 if redis-cli ping 2>/dev/null | grep -q PONG; then
     log "✅ Redis already running"
 else
@@ -91,12 +96,12 @@ else
 fi
 wait_until "Redis" "redis-cli ping 2>/dev/null | grep -q PONG"
 
-# ── STEP 2: Start PARALLEL — vLLM + Phoenix + Streamlit ──────────
-log "[2/5] Starting vLLM, Phoenix, Streamlit in parallel..."
+# ── STEP 2: Start PARALLEL — vLLM + Phoenix + Next.js ────────────
+log "[2/6] Starting vLLM, Phoenix, Next.js in parallel..."
 
 # vLLM
 start_bg "vLLM" \
-    "curl -s http://localhost:8000/health" \
+    "curl -s http://localhost:$VLLM_PORT/health" \
     "env CUDA_VISIBLE_DEVICES=$VLLM_CUDA_VISIBLE_DEVICES vllm serve models/Qwen2.5-7B-Instruct \
         --dtype half \
         --tensor-parallel-size $VLLM_TENSOR_PARALLEL_SIZE \
@@ -105,7 +110,7 @@ start_bg "vLLM" \
         $VLLM_CPU_OFFLOAD_ARGS \
         --enforce-eager --enable-prefix-caching \
         --disable-log-requests \
-        --max-num-seqs $VLLM_MAX_NUM_SEQS --port 8000 --host 0.0.0.0 \
+        --max-num-seqs $VLLM_MAX_NUM_SEQS --port $VLLM_PORT --host 0.0.0.0 \
         --served-model-name mcqgen" \
     "$LOG_DIR/vllm.log"
 
@@ -115,18 +120,14 @@ start_bg "Phoenix" \
     "env TMPDIR=$PROJECT/tmp python -m phoenix.server.main serve --port 6006 --host 0.0.0.0" \
     "$LOG_DIR/phoenix.log"
 
-# Streamlit
-pkill -f "streamlit" 2>/dev/null || true
-sleep 1
-start_bg "Streamlit" \
-    "curl -s http://localhost:8501" \
-    "env CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES streamlit run streamlit_app.py \
-        --server.port 8501 --server.address 0.0.0.0 \
-        --server.headless true" \
-    "$LOG_DIR/streamlit.log"
+# Next.js frontend
+start_bg "Next.js" \
+    "curl -s http://localhost:3002" \
+    "bash -lc 'cd $PROJECT/webapp && npm run dev -- --hostname 0.0.0.0 --port 3002'" \
+    "$LOG_DIR/nextjs.log"
 
 # ── STEP 3: Celery — chỉ cần Redis (đã ready) ───────────────────
-log "[3/5] Celery worker..."
+log "[3/6] Celery worker..."
 pkill -f "celery.*worker" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker \
@@ -136,17 +137,17 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker
 log "   PID=$! | log=$LOG_DIR/celery.log"
 
 # ── STEP 4: FastAPI — chỉ cần Redis (đã ready) ──────────────────
-log "[4/5] FastAPI..."
+log "[4/6] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
-    --host 0.0.0.0 --port 7860 \
+    --host 0.0.0.0 --port 8080 \
     > $LOG_DIR/fastapi.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
 # ── STEP 5: Wait vLLM (blocking — phải ready trước khi thông báo) 
-log "[5/5] Waiting for vLLM to finish loading model..."
-wait_until "vLLM" "curl -s http://localhost:8000/health"
+log "[5/6] Waiting for vLLM to finish loading model..."
+wait_until "vLLM" "curl -s http://localhost:$VLLM_PORT/health"
 
 # ── STEP 6: Prometheus + Grafana (Docker) ────────────────────────
 log "[6/6] Prometheus + Grafana..."
@@ -172,15 +173,17 @@ check_service() {
 }
 
 check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
-check_service "vLLM     " "curl -s http://localhost:8000/health"       ":8000"
+check_service "vLLM     " "curl -s http://localhost:$VLLM_PORT/health" ":$VLLM_PORT"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
-check_service "FastAPI  " "curl -s http://localhost:7860/health"        ":7860"
+check_service "Next.js  " "curl -s http://localhost:3002"              ":3002"
+check_service "FastAPI  " "curl -s http://localhost:8080/health"        ":8080"
+
 check_service "Streamlit"   "curl -s http://localhost:8501"                ":8501"
 check_service "Prometheus" "curl -s http://localhost:9090/-/healthy"           ":9090"
 check_service "Grafana"    "curl -s http://localhost:3001/api/health"          ":3001"
 
-echo ""
+echo "  🌐 UI:        http://$IP:3002"
 echo "  🌐 UI:        http://$IP:8501"
-echo "  🔧 API docs:  http://$IP:7860/docs"
+echo "  🔧 API docs:  http://$IP:8080/docs"
 echo "  📈 Monitor:   http://$IP:6006"
 log "════════════════════════════════════"

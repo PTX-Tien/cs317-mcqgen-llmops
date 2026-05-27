@@ -42,6 +42,9 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = PROJECT_ROOT.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results" / "vllm_demo"
 DEFAULT_BASE_URL = os.getenv("VLLM_URL", "http://localhost:8000/v1")
 DEFAULT_MODEL = os.getenv("VLLM_MODEL", "mcqgen")
@@ -532,8 +535,8 @@ def collect_evidence(args: argparse.Namespace) -> dict[str, Any]:
     env_text.append(run_cmd([sys.executable, "-m", "pip", "show", "vllm"], timeout=20))
     env_text.append("\n\n## pip show torch\n")
     env_text.append(run_cmd([sys.executable, "-m", "pip", "show", "torch"], timeout=20))
-    env_text.append("\n\n## start_system.sh vLLM lines\n")
-    start_system = PROJECT_ROOT / "start_system.sh"
+    env_text.append("\n\n## scripts/start_system.sh vLLM lines\n")
+    start_system = REPO_ROOT / "scripts" / "start_system.sh"
     if start_system.exists():
         lines = [
             line
@@ -614,8 +617,8 @@ async def cmd_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     os.environ["VLLM_MODEL"] = args.model
     os.environ["MCQGEN_MAX_CONCURRENT_QUESTIONS"] = str(args.concurrency)
 
-    print("[pipeline] Importing pipeline_mcq.py. This can load retrieval models...")
-    pipeline_mcq = importlib.import_module("pipeline_mcq")
+    print("[pipeline] Importing src.mcqgen.pipeline_mcq. This can load retrieval models...")
+    pipeline_mcq = importlib.import_module("src.mcqgen.pipeline_mcq")
 
     topics = load_pipeline_topics(args, pipeline_mcq)
     task_specs = [(topic, seq) for topic in topics for seq in range(topic.get("n", 1))]
@@ -1168,7 +1171,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_direct = sub.add_parser("direct", help="Optional true no-vLLM Transformers baseline.")
     add_common_args(p_direct)
-    p_direct.add_argument("--direct-model-path", default=str(PROJECT_ROOT / "models" / "Qwen2.5-7B-Instruct"))
+    p_direct.add_argument("--direct-model-path", default=str(REPO_ROOT / "models" / "Qwen2.5-7B-Instruct"))
     p_direct.add_argument("--num-requests", type=int, default=5)
     p_direct.add_argument("--max-tokens", type=int, default=256)
     p_direct.add_argument("--temperature", type=float, default=0.0)
@@ -1200,7 +1203,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_all.add_argument("--topics-json", default="")
     p_all.add_argument("--retrieval-mode", choices=["fast", "auto", "quality"], default="auto")
     p_all.add_argument("--precompute-rag", action=argparse.BooleanOptionalAction, default=True)
-    p_all.add_argument("--direct-model-path", default=str(PROJECT_ROOT / "models" / "Qwen2.5-7B-Instruct"))
+    p_all.add_argument("--direct-model-path", default=str(REPO_ROOT / "models" / "Qwen2.5-7B-Instruct"))
     p_all.add_argument("--device", default="cuda:0")
     p_all.add_argument("--device-map", default="auto")
     p_all.add_argument("--dtype", choices=["float16", "bfloat16"], default="float16")

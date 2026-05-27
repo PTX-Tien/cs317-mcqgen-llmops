@@ -545,14 +545,14 @@ Trong `run_pipeline_with_topics()`, cũng có thể thay tương tự nếu bạ
 ```bash
 mkdir -p results/vllm_demo
 
-MCQGEN_RUN_MODE=sequential python pipeline_mcq.py \
+MCQGEN_RUN_MODE=sequential python -m src.mcqgen.pipeline_mcq \
   | tee results/vllm_demo/pipeline_sequential.log
 ```
 
 ### Chạy async + vLLM
 
 ```bash
-MCQGEN_RUN_MODE=async python pipeline_mcq.py \
+MCQGEN_RUN_MODE=async python -m src.mcqgen.pipeline_mcq \
   | tee results/vllm_demo/pipeline_async_vllm.log
 ```
 
@@ -815,8 +815,8 @@ Nói:
 #### Bước 4 — Chạy full pipeline
 
 ```bash
-MCQGEN_RUN_MODE=sequential python pipeline_mcq.py
-MCQGEN_RUN_MODE=async python pipeline_mcq.py
+MCQGEN_RUN_MODE=sequential python -m src.mcqgen.pipeline_mcq
+MCQGEN_RUN_MODE=async python -m src.mcqgen.pipeline_mcq
 ```
 
 Nói:
@@ -1057,10 +1057,10 @@ Cách xử lý:
 ### Slide 3 — Project Architecture
 
 ```text
-Streamlit/FastAPI/Celery
+Next.js/FastAPI/Celery
         |
         v
-pipeline_mcq.py / advanced_retrieval.py
+src.mcqgen.pipeline_mcq / src.mcqgen.advanced_retrieval
         |
         v
 OpenAI-compatible API: localhost:8000/v1
