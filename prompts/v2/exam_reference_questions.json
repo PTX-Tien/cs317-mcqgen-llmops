@@ -1,0 +1,759 @@
+[
+  {
+    "id": "de1_q01",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Một mô hình bị hiện tượng quá khớp (overfitting) khi:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Mô hình quá phức tạp (số lượng tham số nhiều, bậc của tham số cao, hoặc hàm phi tuyến) và do đó rất linh hoạt khi học/huấn luyện",
+      "B": "Mô hình quá hạn chế các tham số khi huấn luyện và do đó bị giới hạn về khả năng biểu diễn của mô hình",
+      "C": "Mô hình thường dự đoán không chính xác ngay cả trên các mẫu huấn luyện",
+      "D": "Mô hình tập trung quá nhiều vào chi tiết nhiễu của tập huấn luyện, dẫn đến không có tính tổng quát"
+    },
+    "correct_answer": ["A", "D"],
+    "topic": "Overfitting",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Mở đầu ngắn gọn, đi thẳng vào khái niệm. Distractor B/C kiểm tra phân biệt overfitting vs underfitting — rất hợp lý.",
+    "opening_family": "misconception_check",
+    "opening_pattern": "Một mô hình bị hiện tượng ... khi:"
+  },
+  {
+    "id": "de1_q02",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Một mô hình đang bị quá khớp (overfitting) khi:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Cả lỗi huấn luyện và lỗi kiểm thử đều cao",
+      "B": "Lỗi huấn luyện thấp nhưng lỗi kiểm thử cao",
+      "C": "Lỗi huấn luyện cao nhưng lỗi kiểm thử thấp",
+      "D": "Cả lỗi huấn luyện và lỗi kiểm thử đều thấp"
+    },
+    "correct_answer": ["B"],
+    "topic": "Overfitting",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, kiểm tra hiểu biết cốt lõi. Distractor cover hết 4 tổ hợp train/test error — thiết kế exhaustive rất hay.",
+    "opening_family": "misconception_check",
+    "opening_pattern": "Một mô hình đang bị ... khi:"
+  },
+  {
+    "id": "de1_q03",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Với một tập huấn luyện cố định, bằng cách tuần tự thêm các tham số để tăng tính linh hoạt cho mô hình, chúng ta có khả năng quan sát thấy:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Sự chênh lệch lớn hơn giữa lỗi huấn luyện và lỗi kiểm thử",
+      "B": "Sự chênh lệch nhỏ hơn giữa lỗi huấn luyện và lỗi kiểm thử",
+      "C": "Lỗi huấn luyện tăng lên hoặc ổn định",
+      "D": "Lỗi huấn luyện giảm xuống"
+    },
+    "correct_answer": ["A", "D"],
+    "topic": "Bias-Variance",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng scenario ngắn — đưa tình huống cụ thể rồi hỏi quan sát. Style tốt, kiểm tra hiểu bias-variance tradeoff.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Với một tập huấn luyện cố định, bằng cách..."
+  },
+  {
+    "id": "de1_q04",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Khi cố định các tham số của mô hình, nếu tăng số lượng mẫu huấn luyện, ta có khả năng quan sát thấy:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Sự chênh lệch lớn hơn giữa lỗi huấn luyện và lỗi kiểm thử",
+      "B": "Sự chênh lệch nhỏ hơn giữa lỗi huấn luyện và lỗi kiểm thử",
+      "C": "Lỗi huấn luyện tăng lên hoặc ổn định",
+      "D": "Lỗi huấn luyện giảm xuống"
+    },
+    "correct_answer": ["B", "C"],
+    "topic": "Bias-Variance",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Cùng dạng scenario với câu 3 nhưng đổi điều kiện (tăng data thay vì tăng tham số). Cặp câu 3-4 kiểm tra hiểu sâu learning curve.",
+    "opening_family": "parameter_effect",
+    "opening_pattern": "Khi cố định ..., nếu tăng ..., ta có khả năng..."
+  },
+  {
+    "id": "de1_q05",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Các mô hình đa thức với tham số bậc cao:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Luôn có lỗi kiểm thử tốt nhất, nhưng có thể quá trình huấn luyện chậm hơn",
+      "B": "Không khớp (underfit) hơn so với các mô hình hồi quy tuyến tính",
+      "C": "Có lỗi huấn luyện thấp hơn so với các mô hình đa thức bậc thấp",
+      "D": "Có khả năng quá khớp (overfit) hơn so với các mô hình đa thức bậc thấp"
+    },
+    "correct_answer": ["C", "D"],
+    "topic": "Overfitting",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, đi thẳng vào đặc tính mô hình. Distractor A dùng từ tuyệt đối 'Luôn' — dạy SV nhận biết absolute term.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Các mô hình đa thức với tham số bậc cao:"
+  },
+  {
+    "id": "de1_q06",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Việc sử dụng một mô hình với độ lệch (bias) cao:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Gây ra một mô hình không khớp (underfit) với dữ liệu huấn luyện",
+      "B": "Gây ra một mô hình quá khớp (overfit) với dữ liệu huấn luyện",
+      "C": "Mô hình dự đoán không tốt trên một mẫu huấn luyện nào đó",
+      "D": "Gây ra những lỗi mang tính hệ thống trong mô hình dự đoán"
+    },
+    "correct_answer": ["A", "D"],
+    "topic": "Bias-Variance",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra hiểu khái niệm bias. Distractor B đánh vào nhầm lẫn bias cao vs variance cao.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Việc sử dụng một mô hình với ... cao:"
+  },
+  {
+    "id": "de1_q07",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Hiệu suất tổng quát hóa của một mô hình scikit-learn có thể được đánh giá bằng cách:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Gọi hàm fit để huấn luyện trên tập huấn luyện, hàm predict trên tập kiểm thử để dự đoán, và tính điểm số bằng cách truyền các dự đoán và ground truth vào một hàm độ đo (metric) nào đó",
+      "B": "Gọi hàm fit để huấn luyện trên tập huấn luyện và hàm score để tính điểm số trên tập kiểm thử",
+      "C": "Gọi hàm cross_validate bằng cách truyền vào mô hình, dữ liệu và ground truth",
+      "D": "Gọi hàm fit_transform trên dữ liệu huấn luyện và sau đó sử dụng hàm score để tính điểm số trên tập kiểm thử"
+    },
+    "correct_answer": ["A", "B", "C"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng code_api — kiểm tra hiểu workflow sklearn. Distractor D nhầm fit_transform với fit+predict.",
+    "opening_family": "code_api",
+    "opening_pattern": "Hiệu suất tổng quát hóa ... có thể được đánh giá bằng cách:"
+  },
+  {
+    "id": "de1_q08",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Khi gọi hàm cross_validate(estimator, X, y, cv=5), những điều sau đây sẽ được thực hiện:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "X và y được chia thành năm phần riêng biệt với các tập kiểm thử không chồng lấn nhau.",
+      "B": "estimator.fit được gọi 5 lần trên toàn bộ X và y",
+      "C": "estimator.fit được gọi 5 lần, mỗi lần trên một tập huấn luyện khác nhau"
+    },
+    "correct_answer": ["A", "C"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi cụ thể về hành vi hàm API — rất sát đề thi thật. Distractor B nhầm 'trên toàn bộ' vs 'trên tập con'.",
+    "opening_family": "code_api",
+    "opening_pattern": "Khi gọi hàm ..., những điều sau đây sẽ được thực hiện:"
+  },
+  {
+    "id": "de1_q10",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Bộ chuẩn hóa StandardScaler trong scikit-learn với tham số mặc định:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Biến đổi các đặc trưng sao cho chúng có phạm vi tương tự nhau",
+      "B": "Biến đổi các đặc trưng để nằm trong phạm vi [0.0, 1.0]",
+      "C": "Biến đổi các giá trị đặc trưng ban đầu chỉ dương thành các giá trị có thể âm hoặc dương",
+      "D": "Có thể giúp hồi quy luận lý (logistic) hội tụ nhanh hơn (ít lần lặp hơn)"
+    },
+    "correct_answer": ["A", "C", "D"],
+    "topic": "Preprocessing",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra hiểu StandardScaler chi tiết. Distractor B nhầm với MinMaxScaler — misconception phổ biến.",
+    "opening_family": "code_api",
+    "opening_pattern": "Bộ chuẩn hóa StandardScaler trong scikit-learn với tham số mặc định:"
+  },
+  {
+    "id": "de1_q11",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Kiểm định chéo (cross-validation) cho phép:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Huấn luyện mô hình nhanh hơn",
+      "B": "Đo lường hiệu suất của mô hình một cách tổng quát hơn",
+      "C": "Ước lượng sự biến thiên hay tính ổn định của mô hình"
+    },
+    "correct_answer": ["B", "C"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, kiểm tra mục đích CV. Distractor A đánh vào nhầm lẫn 'tổng quát hơn' vs 'nhanh hơn'.",
+    "opening_family": "process_purpose",
+    "opening_pattern": "Kiểm định chéo (cross-validation) cho phép:"
+  },
+  {
+    "id": "de1_q12",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Hàm make_pipeline (cũng như Pipeline):",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Thực hiện kiểm định chéo sử dụng các bộ biến đổi và mô hình dự đoán được truyền vào làm tham số",
+      "B": "Kết hợp một hoặc nhiều bộ biến đổi và một mô hình dự đoán",
+      "C": "Thử nghiệm nhiều mô hình cùng một lúc",
+      "D": "Tự động vẽ biểu đồ histogram của các đặc trưng"
+    },
+    "correct_answer": ["B"],
+    "topic": "Pipeline",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi vai trò API — style code_api tốt. Distractor A nhầm Pipeline với cross_validate.",
+    "opening_family": "code_api",
+    "opening_pattern": "Hàm make_pipeline (cũng như Pipeline):"
+  },
+  {
+    "id": "de1_q13",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Mã hóa one-hot:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Biến đổi mỗi cột có giá trị chuỗi thành một cột có mã dạng số nguyên",
+      "B": "Biến đổi một biến số thành một biến phân loại",
+      "C": "Tạo thêm một cột cho mỗi loại giá trị phân loại (categorical value)",
+      "D": "Biến đổi các biến dạng chuỗi thành dạng biểu diễn số học (có thể tính toán số học được)"
+    },
+    "correct_answer": ["C", "D"],
+    "topic": "Encoding",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn. Distractor A nhầm one-hot với ordinal/label encoding.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Mã hóa one-hot:"
+  },
+  {
+    "id": "de1_q14",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Giả sử ta có một tập dữ liệu mà mỗi dòng mô tả một công ty. Các cột nào sau đây nên được coi là đặc trưng số học có ý nghĩa để huấn luyện một mô hình học máy phân loại công ty:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Lĩnh vực hoạt động (\"xây dựng\", \"bán lẻ\", \"năng lượng\", \"bảo hiểm\", v.v...)",
+      "B": "Số điện thoại của bộ phận kinh doanh",
+      "C": "Số lượng nhân viên",
+      "D": "Lợi nhuận của quý cuối cùng",
+      "E": "Mã bưu điện của trụ sở chính"
+    },
+    "correct_answer": ["C", "D"],
+    "topic": "Feature Engineering",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng scenario_application — đưa bối cảnh rồi hỏi chọn feature. Distractor B/E kiểm tra hiểu 'số nhưng không có ý nghĩa thống kê'.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Giả sử ta có một tập dữ liệu ... Các cột nào..."
+  },
+  {
+    "id": "de1_q16",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Biên quyết định (decision boundary) của một mô hình hồi quy luận lý (logistic):",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Phân chia các lớp sử dụng chỉ một trong các đặc trưng đầu vào",
+      "B": "Phân chia các lớp sử dụng sự kết hợp của các đặc trưng đầu vào",
+      "C": "Thường có hình dạng cong"
+    },
+    "correct_answer": ["B"],
+    "topic": "Logistic Regression",
+    "chapter_id": "ch08",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi cơ chế decision boundary — kiểm tra hiểu bản chất linear classifier.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Biên quyết định (decision boundary) của một mô hình ...:"
+  },
+  {
+    "id": "de1_q18",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Chính quy hóa (regularization) cho phép:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Tạo ra một mô hình bền vững trước các dữ liệu nhiễu (outlier)",
+      "B": "Giảm thiểu quá khớp (overfitting) bằng cách ràng buộc trọng số gần với không",
+      "C": "Giảm thiểu không khớp (underfitting) bằng cách tuyến tính hóa bài toán"
+    },
+    "correct_answer": ["B"],
+    "topic": "Regularization",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, hỏi mục đích regularization. Distractor C đảo ngược vai trò — reverse_causality.",
+    "opening_family": "process_purpose",
+    "opening_pattern": "Chính quy hóa (regularization) cho phép:"
+  },
+  {
+    "id": "de1_q20",
+    "source": "de1.pdf (HK1 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Một nút (node) phân chia trong một cây quyết định (DecisionTreeClassifier trong scikit-learn) thực hiện:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Phân làm hai nhánh quyết định dựa trên một đặc trưng duy nhất tại một thời điểm",
+      "B": "Phân làm hai nhánh quyết định dựa trên tất cả đặc trưng",
+      "C": "Phân làm nhiều nhánh quyết định dựa trên một đặc trưng duy nhất",
+      "D": "Phân làm hai nhánh quyết định dựa trên một tổ hợp phi tuyến tính của tất cả đặc trưng"
+    },
+    "correct_answer": ["A"],
+    "topic": "Decision Tree",
+    "chapter_id": "ch08",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra cơ chế cốt lõi của Decision Tree. Các distractor khác biệt rõ ràng về cơ chế split.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Một nút (node) phân chia trong ... thực hiện:"
+  },
+  {
+    "id": "de2_q01",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Sự khác nhau giữa lập trình truyền thống và lập trình theo học máy:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Lập trình truyền thống phải thiết lập các quy tắc (rules) cho hệ thống xử lý và đưa ra kết quả, lập trình theo học máy là thiết kế hệ thống để tự tạo ra các quy tắc (rules) từ input và kết quả mong muốn.",
+      "B": "Lập trình theo học máy phải đưa các quy tắc (rules) cho hệ thống xử lý và đưa ra kết quả, lập trình truyền thống là thiết kế hệ thống để tự động tạo ra các quy tắc (rules) từ input và kết quả mong muốn.",
+      "C": "Lập trình truyền thống phải dựa trên tri thức trước đó của con người để thiết kế hệ thống xử lý dữ liệu input chưa biết trước, lập trình theo học máy là thiết kế hệ thống chỉ có khả năng xử lý các dữ liệu đã biết trước.",
+      "D": "Lập trình theo học máy là thiết kế các phương pháp chỉ có thể đưa ra các nhận định, nhận xét từ dữ liệu input thay vì đưa ra kết quả mong muốn."
+    },
+    "correct_answer": ["A"],
+    "topic": "Intro Supervised Learning",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi so sánh hai paradigm — dạng comparison. Distractor B đảo vai trò — reverse_causality điển hình.",
+    "opening_family": "comparison",
+    "opening_pattern": "Sự khác nhau giữa ... và ...:"
+  },
+  {
+    "id": "de2_q06",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Kiểm định chéo (cross-validation):",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Thường được sử dụng với các bộ dữ liệu nhỏ.",
+      "B": "Huấn luyện mô hình nhanh hơn so với phương pháp chia dữ liệu thành hai tập train/test (hay còn gọi là hold-out validation).",
+      "C": "Đo lường một cách tổng quát hiệu suất của mô hình.",
+      "D": "Là một phương pháp để tìm siêu tham số phù hợp."
+    },
+    "correct_answer": ["A", "C", "D"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, kiểm tra nhiều khía cạnh của CV. Distractor B đánh vào nhầm lẫn tốc độ.",
+    "opening_family": "process_purpose",
+    "opening_pattern": "Kiểm định chéo (cross-validation):"
+  },
+  {
+    "id": "de2_q07",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Xét phương pháp K-Nearest Neighbors (KNNImputer với các tham số mặc định trong sklearn), phát biểu nào sau đây đúng:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Tốc độ thực thi nhanh và tối ưu chi phí tính toán nhất trong các phương pháp thay thế giá trị bị thiếu.",
+      "B": "Giá trị dự đoán được tính theo trọng số là khoảng cách đến điểm xa nhất.",
+      "C": "Giá trị bị thiếu của mỗi đặc trưng được dự đoán từ K điểm dữ liệu gần nhất.",
+      "D": "Giá trị bị thiếu của mỗi đặc trưng được gán bằng -0.1."
+    },
+    "correct_answer": ["C"],
+    "topic": "Missing Data",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra hiểu cơ chế KNNImputer. Distractor A/B/D đều sai rõ nhưng hợp lý cho SV chưa đọc kỹ doc.",
+    "opening_family": "code_api",
+    "opening_pattern": "Xét phương pháp ... phát biểu nào sau đây đúng:"
+  },
+  {
+    "id": "de2_q08",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Phương pháp Z-score scaling:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Đưa dữ liệu về miền [−1, 1].",
+      "B": "Đưa dữ liệu về phân phối chuẩn (normal distribution).",
+      "C": "Đưa dữ liệu về phân phối đều (uniform distribution).",
+      "D": "Giúp loại bỏ các ngoại lệ (outlier)."
+    },
+    "correct_answer": ["B"],
+    "topic": "Preprocessing",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn nhất có thể. Mỗi distractor nhầm sang một phương pháp khác — confuse_model_family.",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Phương pháp Z-score scaling:"
+  },
+  {
+    "id": "de2_q10",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Lựa chọn đặc trưng là:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Lựa chọn các đặc trưng tương quan tuyến tính với các đặc trưng khác để loại bỏ.",
+      "B": "Tìm các đặc trưng không liên quan đến biến dự đoán (output) để loại bỏ.",
+      "C": "Tăng cường đặc trưng cho bài toán.",
+      "D": "Tăng cường số mẫu cho bài toán."
+    },
+    "correct_answer": ["A", "B"],
+    "topic": "Feature Selection",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra hiểu feature selection vs feature engineering vs data augmentation.",
+    "opening_family": "process_purpose",
+    "opening_pattern": "Lựa chọn đặc trưng là:"
+  },
+  {
+    "id": "de2_q11",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Mô hình nào dưới đây tự động chọn lọc các đặc trưng phù hợp:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Hồi quy tuyến tính.",
+      "B": "Hồi quy tuyến tính với L1 regularization.",
+      "C": "Hồi quy tuyến tính với L1 và L2 regularization.",
+      "D": "Hồi quy tuyến tính với L2 regularization."
+    },
+    "correct_answer": ["B", "C"],
+    "topic": "Regularization",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra hiểu L1 sparsity. Distractor A/D nhầm L2 cũng chọn feature.",
+    "opening_family": "best_choice",
+    "opening_pattern": "Mô hình nào dưới đây tự động chọn lọc ...:"
+  },
+  {
+    "id": "de2_q12",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Các biện pháp để hạn chế overfitting cho phương pháp học dựa trên cây quyết định:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Giảm số lượng tham số của mô hình.",
+      "B": "Áp dụng phương pháp cắt tỉa (pruning).",
+      "C": "Sử dụng phương pháp học kết hợp (ensemble learning) với nhiều cây quyết định.",
+      "D": "Giới hạn độ sâu của cây (max depth)."
+    },
+    "correct_answer": ["B", "C", "D"],
+    "topic": "Decision Tree",
+    "chapter_id": "ch08",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Kiểm tra biện pháp chống overfitting cụ thể cho decision tree. Distractor A quá chung chung.",
+    "opening_family": "limitation_awareness",
+    "opening_pattern": "Các biện pháp để hạn chế overfitting cho ...:"
+  },
+  {
+    "id": "de2_q13",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Phát biểu nào sau đây về mô hình học kết hợp bagging với mô hình cơ sở Linear Regression là đúng:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Huấn luyện độc lập các mô hình.",
+      "B": "Huấn luyện tuần tự các mô hình.",
+      "C": "Dễ bị overfitting hơn các mô hình như Linear Regression.",
+      "D": "Có độ phức tạp cao hơn so với các mô hình như Linear Regression."
+    },
+    "correct_answer": ["A", "D"],
+    "topic": "Ensemble Learning",
+    "chapter_id": "ch13",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi cụ thể về bagging. Distractor B nhầm bagging (parallel) với boosting (sequential).",
+    "opening_family": "mechanism_reasoning",
+    "opening_pattern": "Phát biểu nào sau đây về mô hình ... là đúng:"
+  },
+  {
+    "id": "de2_q14",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Với tập dữ liệu một tỷ mẫu có độ phức tạp cao (đặc trưng output có quan hệ phi tuyến tính với đặc trưng input) cho bài toán phân loại 10 lớp đối tượng. Chúng ta nên sử dụng các kỹ thuật nào sau đây:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Mô hình Logistic Regression, Cross-validation và đánh giá bằng độ đo Root Mean Squared Error (RMSE).",
+      "B": "Mô hình Random Forest, Cross-Validation và đánh giá bằng độ đo Accuracy.",
+      "C": "Mô hình Logistic Regression, Holdout Validation và đánh giá bằng độ đo Root Mean Squared Error (RMSE).",
+      "D": "Mô hình Random Forest, Holdout Validation và đánh giá bằng độ đo Accuracy."
+    },
+    "correct_answer": ["D"],
+    "topic": "Model selection",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng scenario tổng hợp — kiểm tra chọn model + validation + metric đồng thời. Distractor A/C nhầm metric regression cho classification.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Với tập dữ liệu ... Chúng ta nên sử dụng các kỹ thuật nào:"
+  },
+  {
+    "id": "de2_q16",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Nhiều đáp án đúng] (G2) Chọn các phát biểu đúng:",
+    "question_type": "multiple_correct",
+    "options": {
+      "A": "Cả bagging và boosting đều kết hợp nhiều mô hình cơ sở (predictors).",
+      "B": "Cả bagging và boosting chỉ làm việc với cây quyết định.",
+      "C": "Boosting kết hợp các mô hình cơ sở (predictors) một cách tuần tự.",
+      "D": "Bagging kết hợp các mô hình cơ sở (predictors) một cách đồng thời."
+    },
+    "correct_answer": ["A", "C", "D"],
+    "topic": "Ensemble Learning",
+    "chapter_id": "ch13",
+    "difficulty": "G2",
+    "quality": "weak",
+    "quality_note": "Mở đầu quá generic 'Chọn các phát biểu đúng' — không có chủ đề rõ trong stem. Nên thêm context.",
+    "opening_family": "misconception_check",
+    "opening_pattern": "Chọn các phát biểu đúng:"
+  },
+  {
+    "id": "de2_q17",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Giả sử bạn có dữ liệu hồ sơ bệnh nhân từ 10 bệnh viện khác nhau, với mục tiêu dự đoán bệnh tình của bệnh nhân. Các lớp (\"bệnh\" và \"không bệnh\") bị mất cân bằng. Chiến lược kiểm định chéo (cross-validation) nào trong sklearn phù hợp nhất để đánh giá mô hình dự đoán trên bệnh nhân từ các bệnh viện không có trong tập huấn luyện?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "StratifiedGroupKFold.",
+      "B": "GroupKFold.",
+      "C": "StratifiedKFold.",
+      "D": "KFold."
+    },
+    "correct_answer": ["A"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Scenario thực tế xuất sắc — kết hợp imbalanced class + group leakage. Buộc SV hiểu cả stratified lẫn group.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Giả sử bạn có dữ liệu ... Chiến lược ... nào phù hợp nhất:"
+  },
+  {
+    "id": "de2_q18",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Hiệu ứng của việc tăng giá trị điều chỉnh λ (regularization strength) trong mô hình Ridge Regression nhằm:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Làm co các trọng số của đặc trưng không quan trọng về gần bằng 0.",
+      "B": "Làm cho tất cả các trọng số bằng nhau.",
+      "C": "Làm cho tất cả trọng số của đặc trưng bằng 0.",
+      "D": "Ràng buộc tất cả các trọng số phải dương."
+    },
+    "correct_answer": ["A"],
+    "topic": "Regularization",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi parameter_effect cụ thể. Distractor C nhầm Ridge (L2) với Lasso (L1) ở mức cực đoan.",
+    "opening_family": "parameter_effect",
+    "opening_pattern": "Hiệu ứng của việc tăng giá trị ... trong mô hình ... nhằm:"
+  },
+  {
+    "id": "de2_q20",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Vai trò của hệ số tương quan (correlation coefficient) là:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Đo lường độ nghiêng (skew) của dữ liệu.",
+      "B": "Đo lường mức độ liên quan tuyến tính giữa hai biến.",
+      "C": "Xác định độ lệch chuẩn của một biến.",
+      "D": "Đo lường mức độ phân tán của dữ liệu."
+    },
+    "correct_answer": ["B"],
+    "topic": "Statistics for ML",
+    "chapter_id": "ch03",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Ngắn gọn, kiểm tra thuật ngữ cơ bản. Mỗi distractor nhầm với một chỉ số thống kê khác.",
+    "opening_family": "process_purpose",
+    "opening_pattern": "Vai trò của ... là:"
+  },
+  {
+    "id": "de2_q23",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Mô hình nào dưới đây nhạy cảm với các giá trị ngoại lai (outlier) và tại sao?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Cây quyết định, vì chúng chia dữ liệu dựa trên các giá trị ngưỡng.",
+      "B": "Hồi quy tuyến tính, vì các giá trị ngoại lai có thể làm lệch đáng kể trọng số của các đặc trưng.",
+      "C": "Naive Bayes, vì nó dựa trên các giả định xác suất không ổn định trước các giá trị ngoại lai.",
+      "D": "Các thuật toán ở các đáp án còn lại đều bị ảnh hưởng bởi giá trị ngoại lai."
+    },
+    "correct_answer": ["B"],
+    "topic": "Linear Regression",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi kết hợp 'cái nào' + 'tại sao' — buộc hiểu sâu. Mỗi option gồm claim + lý do, SV phải đánh giá cả hai.",
+    "opening_family": "comparison",
+    "opening_pattern": "Mô hình nào dưới đây nhạy cảm với ... và tại sao?"
+  },
+  {
+    "id": "de2_q24",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Khi nào việc sử dụng giá trị trung vị để thay thế dữ liệu bị thiếu sẽ có lợi hơn so với việc sử dụng giá trị trung bình. Tại sao?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Khi dữ liệu tuân theo phân phối chuẩn, vì giá trị trung vị thể hiện xu hướng trung tâm tốt hơn.",
+      "B": "Khi dữ liệu chứa nhiều giá trị ngoại lai, vì giá trị trung vị ít nhạy cảm với các giá trị ngoại lai hơn.",
+      "C": "Khi phần trăm dữ liệu bị thiếu rất thấp, vì giá trị trung vị có nhiều thông tin hơn.",
+      "D": "Khi dữ liệu thuộc kiểu phân loại, vì giá trị trung vị có thể xử lý dữ liệu không phải dạng số tốt hơn."
+    },
+    "correct_answer": ["B"],
+    "topic": "Missing Data",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng 'Khi nào + Tại sao' — kiểm tra điều kiện áp dụng. Rất hay cho style reference.",
+    "opening_family": "best_choice",
+    "opening_pattern": "Khi nào việc sử dụng ... sẽ có lợi hơn ... Tại sao?"
+  },
+  {
+    "id": "de2_q25",
+    "source": "de2.pdf (HK2 2023-2024)",
+    "question_text": "[Một đáp án đúng] (G2) Target encoding khác với one-hot encoding như thế nào và những rủi ro tiềm ẩn của nó là gì?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Target encoding thay thế các giá trị phân loại (categories) bằng giá trị trung bình của biến mục tiêu (target variable) cho các categories đó, có thể dẫn đến rò rỉ dữ liệu (data leakage).",
+      "B": "Target encoding chuyển đổi các biến phân loại thành các véctơ nhị phân, dẫn đến dữ liệu có số chiều cao.",
+      "C": "Target encoding thay thế các giá trị phân loại bằng một số nguyên cố định, có thể làm phát sinh thêm bộ nhớ.",
+      "D": "Target encoding biến đổi các biến phân loại thành một chuỗi các giá trị số dựa trên tần suất của chúng, có thể làm mô hình quá khớp dữ liệu."
+    },
+    "correct_answer": ["A"],
+    "topic": "Encoding",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi so sánh + rủi ro — dạng comparison kết hợp limitation_awareness. Mỗi option là một cặp claim+risk.",
+    "opening_family": "comparison",
+    "opening_pattern": "... khác với ... như thế nào và những rủi ro ...?"
+  },
+  {
+    "id": "de3_q04",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Trong bài toán hồi quy, giả sử y là dự đoán của mô hình, t là giá trị thực, và y* = E[t|x] là giá trị dự đoán tối ưu theo Bayes. Lỗi kỳ vọng được phân tách thành: E[(y − t)²] = (E[y] − y*)² + Var(y) + Var(t). Giả sử chúng ta áp dụng phương pháp bagging trên tập dữ liệu huấn luyện. Khẳng định nào là đúng:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Bagging giúp giảm bias của mô hình bằng cách trung bình hóa dự đoán từ các bộ mô hình con được xây dựng trên các tập dữ liệu bootstrap.",
+      "B": "Bagging không thay đổi bias và variance của mô hình chính, nhưng có thể giảm Bayes error bằng cách sử dụng các tập dữ liệu con bootstrap.",
+      "C": "Bagging không ảnh hưởng đến bias nhưng có thể giảm variance bằng cách trung bình hóa dự đoán từ các mô hình con.",
+      "D": "Bagging không thay đổi bias, không giảm Bayes error, nhưng giảm variance của mô hình bằng cách trung bình hóa dự đoán từ các bộ mô hình con."
+    },
+    "correct_answer": ["D"],
+    "topic": "Ensemble Learning",
+    "chapter_id": "ch13",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Dạng formula_interpretation kết hợp lý thuyết bias-variance decomposition. Câu khó, đòi hỏi hiểu sâu.",
+    "opening_family": "formula_interpretation",
+    "opening_pattern": "Trong bài toán ..., giả sử ... Lỗi kỳ vọng được phân tách thành ... Khẳng định nào đúng:"
+  },
+  {
+    "id": "de3_q13",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Giả sử bạn đang xây dựng một mô hình dự đoán khả năng trả nợ dựa trên dữ liệu từ 50 chi nhánh ngân hàng khác nhau, với mục tiêu phân loại khách hàng thành hai nhóm: \"trả nợ đúng hạn\" và \"trễ hạn\". Các lớp này bị mất cân bằng. Chiến lược kiểm định chéo nào trong sklearn phù hợp nhất để đánh giá mô hình dự đoán trên dữ liệu từ các chi nhánh ngân hàng không có trong tập huấn luyện?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "GroupKFold.",
+      "B": "KFold.",
+      "C": "StratifiedKFold.",
+      "D": "StratifiedGroupKFold."
+    },
+    "correct_answer": ["D"],
+    "topic": "Cross-validation",
+    "chapter_id": "ch05",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Scenario thực tế tương tự de2_q17 nhưng context khác (ngân hàng). Kiểm tra cùng concept StratifiedGroupKFold.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Giả sử bạn đang xây dựng ... Chiến lược ... nào phù hợp nhất:"
+  },
+  {
+    "id": "de3_q15",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Với tập dữ liệu một tỷ mẫu có độ phức tạp cao, đặc trưng output có quan hệ phi tuyến tính với đặc trưng input, và bài toán phân loại 10 lớp đối tượng. Chúng ta nên sử dụng các kỹ thuật nào sau đây để đạt hiệu quả cao và tối ưu hóa tài nguyên tính toán:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Mô hình Logistic Regression, Holdout Validation và đánh giá bằng độ đo Root Mean Squared Error (RMSE).",
+      "B": "Mô hình Random Forest, Holdout Validation và đánh giá bằng độ đo Accuracy.",
+      "C": "Mô hình Random Forest, Cross-Validation và đánh giá bằng độ đo Accuracy.",
+      "D": "Mô hình Logistic Regression, Cross-validation và đánh giá bằng độ đo Root Mean Squared Error (RMSE)."
+    },
+    "correct_answer": ["B"],
+    "topic": "Model selection",
+    "chapter_id": "ch07",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Scenario tổng hợp giống de2_q14 nhưng thêm 'tối ưu tài nguyên' → Holdout thay vì CV cho 1 tỷ mẫu.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Với tập dữ liệu ... Chúng ta nên sử dụng các kỹ thuật nào:"
+  },
+  {
+    "id": "de3_q17",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Target encoding khác với one-hot encoding như thế nào và những rủi ro tiềm ẩn của nó là gì?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Target encoding thay thế các giá trị phân loại bằng một số nguyên cố định, có thể làm phát sinh thêm bộ nhớ.",
+      "B": "Target encoding thay thế các giá trị phân loại (categories) bằng giá trị trung bình của biến mục tiêu (target variable) cho các categories đó, có thể dẫn đến rò rỉ dữ liệu (data leakage).",
+      "C": "Target encoding chuyển đổi các biến phân loại thành các véctơ nhị phân, dẫn đến dữ liệu có số chiều cao.",
+      "D": "Target encoding biến đổi các biến phân loại thành một chuỗi các giá trị số dựa trên tần suất của chúng, có thể làm mô hình quá khớp dữ liệu."
+    },
+    "correct_answer": ["B"],
+    "topic": "Encoding",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Câu giống de2_q25 (reuse across semesters) — xác nhận đây là style chuẩn của GV.",
+    "opening_family": "comparison",
+    "opening_pattern": "... khác với ... như thế nào và những rủi ro ...?"
+  },
+  {
+    "id": "de3_q22",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Trong bài toán phân loại bệnh nhân, cần xác định một người có bệnh hay không từ hồ sơ bệnh án của những người từ 8 tuổi đến 100 tuổi. Đặc trưng tuổi trong bài toán nên được:",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Mã hóa theo One-hot Encoding.",
+      "B": "Mã hóa theo Label Encoding.",
+      "C": "Mã hóa theo Ordinal Encoding.",
+      "D": "Giữ nguyên."
+    },
+    "correct_answer": ["D"],
+    "topic": "Encoding",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Scenario ngắn kiểm tra khi nào KHÔNG cần encoding. Distractor đánh vào SV hay apply encoding mọi lúc.",
+    "opening_family": "scenario_application",
+    "opening_pattern": "Trong bài toán ... Đặc trưng ... nên được:"
+  },
+  {
+    "id": "de3_q25",
+    "source": "HK1_24-25.pdf",
+    "question_text": "[Một đáp án đúng] (G2) Normalizer và StandardScaler trong sklearn thường được sử dụng thay thế cho nhau, nhưng chúng phục vụ các mục đích khác nhau. Khi nào nên ưu tiên sử dụng StandardScaler hơn là Normalizer?",
+    "question_type": "single_correct",
+    "options": {
+      "A": "Khi thuật toán giả định dữ liệu phân phối chuẩn.",
+      "B": "Khi sử dụng các thuật toán không nhạy cảm với đặc trưng nhiễu (ví dụ như Decision Tree).",
+      "C": "Khi dữ liệu cần được biến đổi thành không gian phi tuyến tính.",
+      "D": "Khi dữ liệu có phân phối lệch."
+    },
+    "correct_answer": ["A"],
+    "topic": "Preprocessing",
+    "chapter_id": "ch04",
+    "difficulty": "G2",
+    "quality": "good",
+    "quality_note": "Hỏi điều kiện áp dụng kết hợp so sánh hai API. Dạng comparison + best_choice.",
+    "opening_family": "best_choice",
+    "opening_pattern": "... thường được sử dụng thay thế ... Khi nào nên ưu tiên ...?"
+  }
+]

@@ -173,12 +173,15 @@ def build_p1_gen_stem_key(
     course_name: str = "CS116 – Lập trình Python cho Máy học",
     chapter_or_week: str = "",
     subtopic: str = "",
-    # ── Phase 1: Opening Style Card + Previous Openings ──
-    opening_style_card: str = "",
-    previous_openings_block: str = "",
-    # ── Phase 2: Few-shot Style Reference ──
-    fewshot_block: str = "",
 ) -> str:
+    type_hint = (
+        f"- Loại câu hỏi: {question_type_target}\n"
+        if question_type_target else ""
+    )
+    count_hint = (
+        f"- Số đáp án đúng: {correct_answer_count_target}\n"
+        if correct_answer_count_target else ""
+    )
     ref_block = (
         f"\n\n[STYLE REFERENCE — Câu hỏi mẫu từ đề thi sẵn có]\n"
         f"{assessment_reference}\n"
@@ -189,6 +192,7 @@ Bạn là giảng viên trường đại học dạy môn {course_name}.
 Bạn có kiến thức về {COURSE_KNOWLEDGE_SCOPE}.
 Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng trong đề thi hoặc bộ câu ôn tập cuối kỳ.
 
+[HARD CONSTRAINTS — BẮT BUỘC TUÂN THỦ tuyệt đối]
 [HARD CONSTRAINTS — BẮT BUỘC TUÂN THỦ tuyệt đối]
 - Câu hỏi phải bằng tiếng Việt.
 - Câu hỏi phải phù hợp với ngữ cảnh ra đề cho sinh viên đại học.
@@ -202,26 +206,82 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
   **KHÔNG ĐƯỢC tự ý đổi loại câu hỏi sang loại khác.**
 - Nếu là "single_correct" → stem phải có nhãn [Một đáp án đúng].
 - Nếu là "multiple_correct" → stem phải có nhãn [Nhiều đáp án đúng].
+- **TUYỆT ĐỐI: Loại câu hỏi phải là "{question_type_target}" cho câu này.**
+  Nếu question_type_target = "single_correct" → câu này phải có ĐÚNG 1 đáp án đúng.
+  Nếu question_type_target = "multiple_correct" → câu này phải có ĐÚNG {correct_answer_count_target} đáp án đúng.
+  **KHÔNG ĐƯỢC tự ý đổi loại câu hỏi sang loại khác.**
+- Nếu là "single_correct" → stem phải có nhãn [Một đáp án đúng].
+- Nếu là "multiple_correct" → stem phải có nhãn [Nhiều đáp án đúng].
 - Nếu context không đủ thông tin thì phải từ chối sinh câu hỏi.
 - Không sinh distractor ở bước này.
 
-
-[CHẤT LƯỢNG NGÔN NGỮ VÀ CÂU HỎI - BẮT BUỘC]
-- Toàn bộ `question_text`, `options` và metadata hiển thị cho người dùng phải viết bằng tiếng Việt có dấu.
-- Không được viết tiếng Việt không dấu. Ví dụ SAI: "Han che nao can luu y khi su dung cay quyet dinh".
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc đoạn văn bản ngoại ngữ không liên quan.
-- `question_text` chỉ được là câu hỏi, không được giải thích đáp án trong câu hỏi.
-- `question_text` không được chứa các cụm: "đáp án đúng là", "vì đáp án", "giải thích", "nên chọn".
-- Phương án trả lời phải ngắn gọn như đáp án trong đề thi trắc nghiệm, không viết thành đoạn giải thích dài.
-- Mỗi phương án nên dưới 140 ký tự nếu có thể.
-
-[STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN]
+[STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN
+[STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN
 - **TUYỆT ĐỐI KHÔNG** được ghi đáp án đúng (hoặc một phần nội dung của đáp án đúng) vào trong question_text / stem.
-- **CHỈ MÔ TẢ CHỦ ĐỀ / VẤN ĐỀ** trong stem. KHÔNG liệt kê đáp án trong stem.
-- Nếu câu hỏi có dạng liệt kê (i)(ii)(iii)(iv) trong stem, phải di chuyển toàn bộ vào OPTIONS (A/B/C/D).
+- Ví dụ SAI: "Phương pháp nào sau đây KHÔNG thuộc kỹ thuật ensemble: Boosting, Bagging, Random Forest, hoặc SVM?" ← đã ghi đáp án đúng (Boosting, Bagging, Random Forest) vào stem!
+- Ví dụ SAI: "Trong các phương pháp sau: (i) Khi dữ liệu bị thiếu phân bố ngẫu nhiên...; (ii) Khi dữ liệu bị thiếu tập trung ở một số hàng... — câu hỏi nào đúng?" ← đã ghi đáp án vào stem!
+- **CHỈ MÔ TẢ CHỦ ĐỀ / VẤN ĐỀ** trong stem, ví dụ: "Phương pháp nào sau đây không thuộc nhóm kỹ thuật ensemble learning?" ← KHÔNG liệt kê đáp án trong stem.
+- **Lưu ý quan trọng**: Nếu câu hỏi có dạng liệt kê (i)(ii)(iii)(iv) trong stem, bạn phải di chuyển toàn bộ các mục (i)(ii)(iii)(iv) vào phần OPTIONS (A/B/C/D), KHÔNG giữ chúng trong stem.
 
-{opening_style_card}
-{previous_openings_block}
+[DIVERSITY RULE — TRÁNH CÁC CÁCH MỞ ĐẦU YẾU, TẠO SỰ TÒ MÒ]
+- **Mỗi câu hỏi phải có cách mô tả ĐA DẠNG, không bắt đầu bằng cùng một từ/cụm từ.**
+- **CÁC TỪ/CỤM TỪ SAU ĐÂY TUYỆT ĐỐI KHÔNG được dùng làm mở đầu câu hỏi:**
+  - ❌ "Hãy xác định..." (quá chung chung, gợi nhớ bài kiểm tra)
+  - ❌ "khi" (thường dẫn đến câu hỏi dài, không rõ ràng)
+  - ❌ "đâu" (câu hỏi mơ hồ, không đủ thông tin)
+  - ❌ "Trong quá trình..." (quá dài, không cần thiết)
+  - ❌ "Khi xây dựng..." / "Khi huấn luyện..." (lặp, không tạo tò mò)
+  - ❌ "Trong các phương pháp..." (lặp, quá generic)
+  - ❌ "Trong các kỹ thuật..." (tương tự)
+  - ❌ "Cho biết..." (lặp, không tạo hứng thú)
+- **ƯU TIÊN các cách mở đầu TẠO SỰ TÒ MÒ, học thuật, đúng kiểu đề thi:**
+  - ✅ "Điều gì khiến..." (gợi sự tò mò)
+  - ✅ "Đâu là điểm khác biệt giữa... và...?" (so sánh, phổ biến trong đề thi)
+  - ✅ "Nếu phải chọn giữa... và..., bạn sẽ ưu tiên điều gì?" (tình huống thực tế ngắn)
+  - ✅ "Một mô hình có đặc điểm... sẽ hoạt động ra sao khi...?" (áp dụng kiến thức)
+  - ✅ "Trường hợp nào sau đây minh họa đúng nhất về...?" (nhận định đúng sai)
+  - ✅ "Điều kiện tiên quyết để... hoạt động hiệu quả là gì?" (điều kiện)
+  - ✅ "Sau khi áp dụng..., kết quả mong đợi là gì?" (dự đoán)
+  - ✅ "Quan sát đoạn code sau, output nào phù hợp nhất?" (code-based)
+  - ✅ "Nếu thay đổi tham số... thì điều gì sẽ xảy ra với...?" (phân tích)
+  - ✅ "Vai trò chính của... trong kiến trúc này là gì?" (vai trò/thành phần)
+  - ✅ "Nhận định nào sau đây là chính xác nhất về...?" (đánh giá)
+  - ✅ "Mục đích chính của... là gì?" (mục đích)
+  - ✅ "Tính chất nào giúp phân biệt... với...?" (so sánh tính chất)
+  - ✅ "Phương pháp nào..." (cổ điển, dùng được nhưng tránh lặp)
+  - ✅ "Câu lệnh nào..." / "Hàm nào..." (code-based)
+- **Nếu batch có nhiều câu hỏi, mỗi câu phải dùng cách mở đầu KHÁC NHAU từ danh sách ưu tiên.**
+- **KHÔNG bắt đầu 2 câu liên tiếp bằng cùng một cụm từ.**
+[DIVERSITY RULE — TRÁNH CÁC CÁCH MỞ ĐẦU YẾU, TẠO SỰ TÒ MÒ]
+- **Mỗi câu hỏi phải có cách mô tả ĐA DẠNG, không bắt đầu bằng cùng một từ/cụm từ.**
+- **CÁC TỪ/CỤM TỪ SAU ĐÂY TUYỆT ĐỐI KHÔNG được dùng làm mở đầu câu hỏi:**
+  - ❌ "Hãy xác định..." (quá chung chung, gợi nhớ bài kiểm tra)
+  - ❌ "khi" (thường dẫn đến câu hỏi dài, không rõ ràng)
+  - ❌ "đâu" (câu hỏi mơ hồ, không đủ thông tin)
+  - ❌ "Trong quá trình..." (quá dài, không cần thiết)
+  - ❌ "Khi xây dựng..." / "Khi huấn luyện..." (lặp, không tạo tò mò)
+  - ❌ "Trong các phương pháp..." (lặp, quá generic)
+  - ❌ "Trong các kỹ thuật..." (tương tự)
+  - ❌ "Cho biết..." (lặp, không tạo hứng thú)
+- **ƯU TIÊN các cách mở đầu TẠO SỰ TÒ MÒ, học thuật, đúng kiểu đề thi:**
+  - ✅ "Điều gì khiến..." (gợi sự tò mò)
+  - ✅ "Đâu là điểm khác biệt giữa... và...?" (so sánh, phổ biến trong đề thi)
+  - ✅ "Nếu phải chọn giữa... và..., bạn sẽ ưu tiên điều gì?" (tình huống thực tế ngắn)
+  - ✅ "Một mô hình có đặc điểm... sẽ hoạt động ra sao khi...?" (áp dụng kiến thức)
+  - ✅ "Trường hợp nào sau đây minh họa đúng nhất về...?" (nhận định đúng sai)
+  - ✅ "Điều kiện tiên quyết để... hoạt động hiệu quả là gì?" (điều kiện)
+  - ✅ "Sau khi áp dụng..., kết quả mong đợi là gì?" (dự đoán)
+  - ✅ "Quan sát đoạn code sau, output nào phù hợp nhất?" (code-based)
+  - ✅ "Nếu thay đổi tham số... thì điều gì sẽ xảy ra với...?" (phân tích)
+  - ✅ "Vai trò chính của... trong kiến trúc này là gì?" (vai trò/thành phần)
+  - ✅ "Nhận định nào sau đây là chính xác nhất về...?" (đánh giá)
+  - ✅ "Mục đích chính của... là gì?" (mục đích)
+  - ✅ "Tính chất nào giúp phân biệt... với...?" (so sánh tính chất)
+  - ✅ "Phương pháp nào..." (cổ điển, dùng được nhưng tránh lặp)
+  - ✅ "Câu lệnh nào..." / "Hàm nào..." (code-based)
+- **Nếu batch có nhiều câu hỏi, mỗi câu phải dùng cách mở đầu KHÁC NHAU từ danh sách ưu tiên.**
+- **KHÔNG bắt đầu 2 câu liên tiếp bằng cùng một cụm từ.**
+
 {EXAM_STYLE_BLOCK}
 
 [COURSE / EXAM CONTEXT]
@@ -243,7 +303,10 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
 
 [CONCEPT CONTEXT]
 {concept_context_blocks}
-{ref_block}{fewshot_block}
+
+[STYLE REFERENCE FROM EXISTING EXAMS / QUIZZES]
+{assessment_reference if assessment_reference else '(không có — dùng style học thuật chuẩn môn)'}
+
 [TASK]
 Hãy sinh trước:
 1. Stem hoặc question_text
@@ -254,10 +317,19 @@ Chỉ sinh câu hỏi phù hợp với ngữ cảnh đề thi cho sinh viên đ�
 Không sinh distractor ở bước này.
 
 [OUTPUT FORMAT - JSON ONLY]
-HƯỚNG DẪN NGHIÊM NGẶT: Trường "question_type" phải KHỚP CHÍNH XÁC với mục tiêu ở trên.
+HƯỚNG DẪN NGHIÊM NGẶT: Trường "question_type" trong JSON output phải KHỚP CHÍNH XÁC với "Loại câu hỏi mục tiêu cho câu này" ở trên:
+  - Nếu mục tiêu là "single_correct" → question_type phải là "single_correct"
+  - Nếu mục tiêu là "multiple_correct" → question_type phải là "multiple_correct"
+  Sai: question_type ghi "single_correct" nhưng thực tế câu có 3 đáp án đúng.
+HƯỚNG DẪN NGHIÊM NGẶT: Trường "question_type" trong JSON output phải KHỚP CHÍNH XÁC với "Loại câu hỏi mục tiêu cho câu này" ở trên:
+  - Nếu mục tiêu là "single_correct" → question_type phải là "single_correct"
+  - Nếu mục tiêu là "multiple_correct" → question_type phải là "multiple_correct"
+  Sai: question_type ghi "single_correct" nhưng thực tế câu có 3 đáp án đúng.
 {{
   "draft_question_id": "<string>",
-  "question_text": "<string — BẮT BUỘC phải có nhãn [Một đáp án đúng] hoặc [Nhiều đáp án đúng]>",
+  "question_text": "<string — BẮT BUỘC phải có nhãn phù hợp: [Một đáp án đúng] hoặc [Nhiều đáp án đúng]>",
+  "question_type": "{question_type_target}",
+  "question_text": "<string — BẮT BUỘC phải có nhãn phù hợp: [Một đáp án đúng] hoặc [Nhiều đáp án đúng]>",
   "question_type": "{question_type_target}",
   "correct_answers_content": [
     "<đáp án đúng 1>",
@@ -265,13 +337,12 @@ HƯỚNG DẪN NGHIÊM NGẶT: Trường "question_type" phải KHỚP CHÍNH X�
     "<đáp án đúng 3 nếu có>"
   ],
   "correct_answer_count": {correct_answer_count_target},
+  "correct_answer_count": {correct_answer_count_target},
   "topic": "<string>",
   "subtopic": "<string>",
   "difficulty_label": "<string>",
-  "opening_family": "<nhóm mở đầu đã dùng>",
-  "question_form": "<dạng câu hỏi>",
-  "tested_skill": "<kỹ năng kiểm tra>",
   "used_concept_chunk_ids": ["<chunk_id_1>", "<chunk_id_2>"],
+  "sources": [],
   "sources": [],
   "style_alignment_note": "<ngắn gọn, nêu vì sao câu này phù hợp với ngữ cảnh đề thi>",
   "stem_has_answer": false,
@@ -361,15 +432,6 @@ Nhiệm vụ của bạn là viết lại câu hỏi dựa trên gợi ý cải 
 
 {EXAM_STYLE_BLOCK}
 
-
-[CHẤT LƯỢNG NGÔN NGỮ CỦA DISTRACTOR - BẮT BUỘC]
-- Mỗi distractor phải viết bằng tiếng Việt có dấu.
-- Không được viết tiếng Việt không dấu.
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc văn bản ngoại ngữ không liên quan.
-- Distractor phải là một phương án trả lời ngắn gọn, không phải đoạn giải thích.
-- Không bắt đầu distractor bằng "Vì", "Bởi vì", "Do đó", "Giải thích".
-- Mỗi distractor nên dưới 140 ký tự.
-
 [TASK]
 1. Áp dụng gợi ý để viết lại câu hỏi (stem).
 2. GIỮ NGUYÊN tập đáp án đúng (correct_answers_content).
@@ -409,8 +471,6 @@ def build_p4_option_candidates(
     similar_mcqs_reference: str = "",
     num_candidates: int = 6,
     assessment_style_examples: str = "",
-    # ── Phase 3: misconception guidance ──
-    misconception_guidance: str = "",
 ) -> str:
     stem_key_str = json.dumps(refined_stem_key_json, ensure_ascii=False, indent=2)
     correct_answer_count = refined_stem_key_json.get("correct_answer_count", 1)
@@ -446,42 +506,27 @@ KHÔNG được thay đổi tập đáp án đúng.
 - Số distractor cần thiết cho câu hỏi này: {num_distractors_needed}
   (vì correct_answer_count = {correct_answer_count})
 - Các distractor phải SAI NHƯNG HỢP LÝ — sai trong ngữ cảnh cụ thể của câu hỏi.
+- Các distractor phải đánh trúng các lỗi sai phổ biến của sinh viên.
 - KHÔNG dùng: "Tất cả đáp án trên", "Không đáp án nào đúng",
   "Đáp án A và B đều đúng".
 - Không được paraphrase quá gần với correct answers.
 - Không lộ mẹo làm bài bằng grammar clue, absolute terms, hoặc độ dài quá khác biệt.
-- Tất cả distractors bằng tiếng Việt CÓ DẤU, phù hợp ngữ cảnh đề thi.
-
-[YÊU CẦU MISCONCEPTION — BẮT BUỘC]
-Mỗi distractor PHẢI đánh trúng một lỗi hiểu sai (misconception) cụ thể của sinh viên.
-KHÔNG sinh distractor sai ngẫu nhiên hoặc sai vô lý.
-{misconception_guidance}
-Các misconception_type được phép sử dụng:
-- confuse_model_family: nhầm mô hình này với họ mô hình khác
-- confuse_parameter_effect: nhầm tác động khi thay đổi tham số
-- confuse_api_usage: nhầm hàm/tham số/workflow trong thư viện
-- reverse_causality: đảo chiều quan hệ nhân quả
-- overgeneralization: khái quát hóa sai (áp dụng đúng 1 TH sang mọi TH)
-- terminology_confusion: nhầm thuật ngữ tương tự
-- confuse_preprocessing: nhầm bước/mục đích tiền xử lý
-- confuse_evaluation: nhầm metric hoặc phương pháp đánh giá
-{ref_block}{rag_block}
+- Tất cả distractors bằng tiếng Việt, phù hợp ngữ cảnh đề thi.{ref_block}{rag_block}
 
 [TASK]
 1. Đọc kỹ stem và correct answers từ input.
-2. Xác định các misconception phổ biến liên quan đến câu hỏi này.
-3. Sinh {num_candidates} distractor candidates, mỗi cái đánh trúng một misconception khác nhau.
-4. Với mỗi distractor, ghi rõ loại misconception và lý do sai.
+2. Sinh {num_candidates} distractor candidates theo các tiêu chí trên.
+3. Mỗi distractor phải có lý do sai cụ thể (ghi trong reasoning).
 
 [OUTPUT FORMAT - JSON ONLY]
 {{
   "candidate_distractors": [
-    {{
-      "option_text": "<distractor tiếng Việt có dấu>",
-      "misconception_type": "<một trong các type ở trên>",
-      "why_plausible": "<tại sao sinh viên có thể chọn nhầm — 1 câu ngắn>",
-      "why_wrong": "<tại sao sai về mặt kỹ thuật — 1 câu ngắn>"
-    }}
+    "<distractor 1>",
+    "<distractor 2>",
+    "<distractor 3>",
+    "<distractor 4>",
+    "<distractor 5>",
+    "<distractor 6>"
   ],
   "style_alignment_note": "<ngắn gọn, nêu vì sao distractors phù hợp style đề thi>"
 }}
@@ -674,16 +719,6 @@ Nhiệm vụ của bạn là lắp ráp câu hỏi hoàn chỉnh với 4 options
 {chr(10).join(f"  - {d['option_text']}" for d in selected_distractors)}
 
 {EXAM_STYLE_BLOCK}
-
-
-[CHẤT LƯỢNG CUỐI CÙNG - BẮT BUỘC]
-- `question_text` và tất cả phương án A/B/C/D phải viết bằng tiếng Việt có dấu.
-- Nếu input từ P1/P4 có tiếng Việt không dấu, phải sửa thành tiếng Việt có dấu trong output cuối.
-- Không được chèn tiếng Trung, tiếng Nhật, ký tự lạ, hoặc văn bản ngoại ngữ không liên quan.
-- `question_text` chỉ là câu hỏi; không giải thích đáp án trong stem.
-- Không để đáp án đúng hoặc nội dung giải thích đáp án xuất hiện trong `question_text`.
-- Phương án A/B/C/D phải ngắn gọn như phương án thi trắc nghiệm, không phải đoạn giải thích.
-- Không tạo field giải thích đáp án, rationale, `style_alignment_note` trong output cuối.
 
 [CONSTRAINTS]
 - Tổng số options = 4.

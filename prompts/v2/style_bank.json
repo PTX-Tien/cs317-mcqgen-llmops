@@ -1,0 +1,216 @@
+{
+  "version": "2.0-phase2",
+  "description": "Few-shot examples từ đề thi thật CS116, dùng để inject vào prompt P1 giúp model học style diễn đạt.",
+  "examples": [
+    {
+      "id": "de1_q05",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Overfitting"
+      ],
+      "chapter_id": "ch07",
+      "difficulty_label": "G2",
+      "opening_family": "mechanism_reasoning",
+      "question_form": "mechanism_reasoning",
+      "question_text": "[Nhiều đáp án đúng] (G2) Các mô hình đa thức với tham số bậc cao:",
+      "why_good": "Ngắn gọn, đi thẳng vào đặc tính mô hình. Distractor A dùng từ tuyệt đối 'Luôn' — dạy SV nhận biết absolute term.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q01",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Intro Supervised Learning"
+      ],
+      "chapter_id": "ch07",
+      "difficulty_label": "G2",
+      "opening_family": "comparison",
+      "question_form": "comparison",
+      "question_text": "[Một đáp án đúng] (G2) Sự khác nhau giữa lập trình truyền thống và lập trình theo học máy:",
+      "why_good": "Hỏi so sánh hai paradigm — dạng comparison. Distractor B đảo vai trò — reverse_causality điển hình.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q03",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Bias-Variance"
+      ],
+      "chapter_id": "ch07",
+      "difficulty_label": "G2",
+      "opening_family": "scenario_application",
+      "question_form": "scenario_application",
+      "question_text": "[Nhiều đáp án đúng] (G2) Với một tập huấn luyện cố định, bằng cách tuần tự thêm các tham số để tăng tính linh hoạt cho mô hình, chúng ta có khả năng quan sát thấy:",
+      "why_good": "Dạng scenario ngắn — đưa tình huống cụ thể rồi hỏi quan sát. Style tốt, kiểm tra hiểu bias-variance tradeoff.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q18",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Regularization"
+      ],
+      "chapter_id": "ch07",
+      "difficulty_label": "G2",
+      "opening_family": "parameter_effect",
+      "question_form": "parameter_effect",
+      "question_text": "[Một đáp án đúng] (G2) Hiệu ứng của việc tăng giá trị điều chỉnh λ (regularization strength) trong mô hình Ridge Regression nhằm:",
+      "why_good": "Hỏi parameter_effect cụ thể. Distractor C nhầm Ridge (L2) với Lasso (L1) ở mức cực đoan.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q07",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Cross-validation"
+      ],
+      "chapter_id": "ch05",
+      "difficulty_label": "G2",
+      "opening_family": "code_api",
+      "question_form": "code_api",
+      "question_text": "[Nhiều đáp án đúng] (G2) Hiệu suất tổng quát hóa của một mô hình scikit-learn có thể được đánh giá bằng cách:",
+      "why_good": "Dạng code_api — kiểm tra hiểu workflow sklearn. Distractor D nhầm fit_transform với fit+predict.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q10",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Feature Selection"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "process_purpose",
+      "question_form": "process_purpose",
+      "question_text": "[Nhiều đáp án đúng] (G2) Lựa chọn đặc trưng là:",
+      "why_good": "Kiểm tra hiểu feature selection vs feature engineering vs data augmentation.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q24",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Missing Data"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "best_choice",
+      "question_form": "best_choice",
+      "question_text": "[Một đáp án đúng] (G2) Khi nào việc sử dụng giá trị trung vị để thay thế dữ liệu bị thiếu sẽ có lợi hơn so với việc sử dụng giá trị trung bình. Tại sao?",
+      "why_good": "Dạng 'Khi nào + Tại sao' — kiểm tra điều kiện áp dụng. Rất hay cho style reference.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q12",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Decision Tree"
+      ],
+      "chapter_id": "ch08",
+      "difficulty_label": "G2",
+      "opening_family": "limitation_awareness",
+      "question_form": "limitation_awareness",
+      "question_text": "[Nhiều đáp án đúng] (G2) Các biện pháp để hạn chế overfitting cho phương pháp học dựa trên cây quyết định:",
+      "why_good": "Kiểm tra biện pháp chống overfitting cụ thể cho decision tree. Distractor A quá chung chung.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de3_q04",
+      "source": "HK1_24-25.pdf",
+      "topic_tags": [
+        "Ensemble Learning"
+      ],
+      "chapter_id": "ch13",
+      "difficulty_label": "G2",
+      "opening_family": "formula_interpretation",
+      "question_form": "formula_interpretation",
+      "question_text": "[Một đáp án đúng] (G2) Trong bài toán hồi quy, giả sử y là dự đoán của mô hình, t là giá trị thực, và y* = E[t|x] là giá trị dự đoán tối ưu theo Bayes. Lỗi kỳ vọng được phân tách thành: E[(y − t)²] = (E[y] − y*)² + Var(y) + Var(t). Giả sử chúng ta áp dụng phương pháp bagging trên tập dữ liệu huấn luyện. Khẳng định nào là đúng:",
+      "why_good": "Dạng formula_interpretation kết hợp lý thuyết bias-variance decomposition. Câu khó, đòi hỏi hiểu sâu.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q10",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Preprocessing"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "code_api",
+      "question_form": "code_api",
+      "question_text": "[Nhiều đáp án đúng] (G2) Bộ chuẩn hóa StandardScaler trong scikit-learn với tham số mặc định:",
+      "why_good": "Kiểm tra hiểu StandardScaler chi tiết. Distractor B nhầm với MinMaxScaler — misconception phổ biến.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q12",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Pipeline"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "code_api",
+      "question_form": "code_api",
+      "question_text": "[Một đáp án đúng] (G2) Hàm make_pipeline (cũng như Pipeline):",
+      "why_good": "Hỏi vai trò API — style code_api tốt. Distractor A nhầm Pipeline với cross_validate.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q13",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Encoding"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "mechanism_reasoning",
+      "question_form": "mechanism_reasoning",
+      "question_text": "[Nhiều đáp án đúng] (G2) Mã hóa one-hot:",
+      "why_good": "Ngắn gọn. Distractor A nhầm one-hot với ordinal/label encoding.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q14",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Feature Engineering"
+      ],
+      "chapter_id": "ch04",
+      "difficulty_label": "G2",
+      "opening_family": "scenario_application",
+      "question_form": "scenario_application",
+      "question_text": "[Nhiều đáp án đúng] (G2) Giả sử ta có một tập dữ liệu mà mỗi dòng mô tả một công ty. Các cột nào sau đây nên được coi là đặc trưng số học có ý nghĩa để huấn luyện một mô hình học máy phân loại công ty:",
+      "why_good": "Dạng scenario_application — đưa bối cảnh rồi hỏi chọn feature. Distractor B/E kiểm tra hiểu 'số nhưng không có ý nghĩa thống kê'.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de1_q16",
+      "source": "de1.pdf (HK1 2023-2024)",
+      "topic_tags": [
+        "Logistic Regression"
+      ],
+      "chapter_id": "ch08",
+      "difficulty_label": "G2",
+      "opening_family": "mechanism_reasoning",
+      "question_form": "mechanism_reasoning",
+      "question_text": "[Một đáp án đúng] (G2) Biên quyết định (decision boundary) của một mô hình hồi quy luận lý (logistic):",
+      "why_good": "Hỏi cơ chế decision boundary — kiểm tra hiểu bản chất linear classifier.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    },
+    {
+      "id": "de2_q14",
+      "source": "de2.pdf (HK2 2023-2024)",
+      "topic_tags": [
+        "Model selection"
+      ],
+      "chapter_id": "ch07",
+      "difficulty_label": "G2",
+      "opening_family": "scenario_application",
+      "question_form": "scenario_application",
+      "question_text": "[Một đáp án đúng] (G2) Với tập dữ liệu một tỷ mẫu có độ phức tạp cao (đặc trưng output có quan hệ phi tuyến tính với đặc trưng input) cho bài toán phân loại 10 lớp đối tượng. Chúng ta nên sử dụng các kỹ thuật nào sau đây:",
+      "why_good": "Dạng scenario tổng hợp — kiểm tra chọn model + validation + metric đồng thời. Distractor A/C nhầm metric regression cho classification.",
+      "do_not_copy_note": "Chỉ học phong cách mở đầu và cách đặt vấn đề. KHÔNG sao chép nội dung câu hỏi này."
+    }
+  ]
+}

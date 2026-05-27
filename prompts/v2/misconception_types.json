@@ -1,0 +1,86 @@
+{
+  "version": "1.0-phase3",
+  "description": "Các loại lỗi hiểu sai phổ biến của sinh viên CS116, dùng để hướng dẫn sinh distractor có chủ đích.",
+  "types": [
+    {
+      "id": "confuse_model_family",
+      "name_vi": "Nhầm họ mô hình",
+      "description": "Nhầm mô hình này với họ mô hình khác hoặc gán nhầm tính chất.",
+      "examples": [
+        "Nhầm SVM tối ưu xác suất (thực ra là Logistic Regression)",
+        "Nhầm Random Forest là boosting (thực ra là bagging)",
+        "Nhầm Naive Bayes dùng gradient descent (thực ra dùng Bayes theorem)"
+      ]
+    },
+    {
+      "id": "confuse_parameter_effect",
+      "name_vi": "Nhầm tác động tham số",
+      "description": "Hiểu sai ảnh hưởng khi thay đổi tham số hoặc đảo chiều tác động.",
+      "examples": [
+        "Tăng C trong SVM giảm overfitting (thực ra tăng overfitting)",
+        "Tăng max_depth giảm variance (thực ra tăng variance)",
+        "Tăng regularization λ tăng model complexity (thực ra giảm)"
+      ]
+    },
+    {
+      "id": "confuse_api_usage",
+      "name_vi": "Nhầm API/hàm",
+      "description": "Nhầm hàm, tham số, hoặc workflow trong sklearn, pandas, numpy.",
+      "examples": [
+        "Nhầm fit_transform dùng trên test set (chỉ dùng trên train)",
+        "Nhầm StandardScaler đưa về [0,1] (thực ra là MinMaxScaler)",
+        "Nhầm cross_validate tự động tune hyperparameter (thực ra chỉ evaluate)"
+      ]
+    },
+    {
+      "id": "reverse_causality",
+      "name_vi": "Đảo nguyên nhân-kết quả",
+      "description": "Đảo chiều quan hệ nhân quả hoặc nhầm điều kiện với kết quả.",
+      "examples": [
+        "Overfitting do thiếu dữ liệu (thực ra chủ yếu do model quá phức tạp)",
+        "Cross-validation giúp train nhanh hơn (thực ra chậm hơn hold-out)",
+        "Scaling giúp model chính xác hơn mọi trường hợp (chỉ đúng với một số model)"
+      ]
+    },
+    {
+      "id": "overgeneralization",
+      "name_vi": "Khái quát hóa sai",
+      "description": "Áp dụng tính chất đúng trong 1 trường hợp sang mọi trường hợp.",
+      "examples": [
+        "Decision Tree luôn overfit (chỉ khi không pruning/giới hạn depth)",
+        "Regularization luôn cải thiện accuracy (không đúng nếu underfitting)",
+        "Ensemble luôn tốt hơn single model (không đúng nếu base model đã tốt)"
+      ]
+    },
+    {
+      "id": "terminology_confusion",
+      "name_vi": "Nhầm thuật ngữ",
+      "description": "Nhầm lẫn giữa các thuật ngữ có tên hoặc ý nghĩa tương tự.",
+      "examples": [
+        "Nhầm bias (lệch hệ thống) với variance (dao động)",
+        "Nhầm precision (độ chính xác dương) với recall (độ bao phủ)",
+        "Nhầm normalization với standardization"
+      ]
+    },
+    {
+      "id": "confuse_preprocessing",
+      "name_vi": "Nhầm bước tiền xử lý",
+      "description": "Nhầm mục đích, cách dùng, hoặc output của các bước preprocessing.",
+      "examples": [
+        "One-hot encoding tạo 1 cột số nguyên (thực ra tạo n cột binary)",
+        "Label encoding giữ thứ tự ngữ nghĩa (không đảm bảo)",
+        "Imputation bằng mean luôn tốt hơn median (sai khi có outlier)"
+      ]
+    },
+    {
+      "id": "confuse_evaluation",
+      "name_vi": "Nhầm metric/phương pháp đánh giá",
+      "description": "Nhầm metric đánh giá, phương pháp validation, hoặc ý nghĩa kết quả.",
+      "examples": [
+        "Dùng RMSE cho classification (thực ra cho regression)",
+        "KFold đủ cho imbalanced data (cần StratifiedKFold)",
+        "Accuracy cao nghĩa là model tốt (sai khi data imbalanced)"
+      ]
+    }
+  ]
+}
