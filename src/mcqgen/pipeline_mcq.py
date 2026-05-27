@@ -19,6 +19,13 @@ from pathlib import Path
 from openai import AsyncOpenAI
 import chromadb
 from sentence_transformers import SentenceTransformer
+from monitoring.langfuse_tracing import (
+    langfuse_observation,
+    score_langfuse_trace,
+    truncate_for_langfuse,
+    update_langfuse_observation,
+    usage_details_from_response,
+)
 from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
 from .opening_families import (
     select_opening_family,
@@ -209,19 +216,55 @@ def get_llm_client() -> AsyncOpenAI:
         _LLM_CLIENTS[loop_key] = client
     return client
 
-async def llm(prompt: str, temperature: float = 0.7, max_tokens: int = 1024) -> str:
-    async with get_llm_semaphore():
-        resp = await get_llm_client().chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-        )
-    return resp.choices[0].message.content
+async def llm(
+    prompt: str,
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+    *,
+    stage: str = "llm",
+    q_id: str | None = None,
+    metadata: dict | None = None,
+) -> str:
+    model_parameters = {
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "enable_thinking": False,
+    }
+    trace_metadata = {
+        "stage": stage,
+        "question_id": q_id,
+        "vllm_url": VLLM_URL,
+        **(metadata or {}),
+    }
+    with langfuse_observation(
+        f"llm.{stage}",
+        as_type="generation",
+        input=[
+            {"role": "system", "content": truncate_for_langfuse(SYSTEM_PROMPT)},
+            {"role": "user", "content": truncate_for_langfuse(prompt)},
+        ],
+        metadata=trace_metadata,
+        model=MODEL,
+        model_parameters=model_parameters,
+    ) as lf_span:
+        async with get_llm_semaphore():
+            resp = await get_llm_client().chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt}
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}}
+            )
+    text = resp.choices[0].message.content
+    update_langfuse_observation(
+        lf_span,
+        output=truncate_for_langfuse(text),
+        usage_details=usage_details_from_response(resp),
+    )
+    return text
 
 def parse_json(text: str) -> dict:
     text = text.strip()
@@ -405,11 +448,29 @@ async def generate_one_mcq(
         # ── Retrieve context ──────────────────────────────────────
         if precomputed_rag is None:
             async with atimer("RAG", q_id):
-                context, rag_debug = await adaptive_retrieve(
-                    topic,
-                    chapter_id,
-                    mode=retrieval_mode,
-                )
+                with langfuse_observation(
+                    "rag.retrieve",
+                    as_type="span",
+                    input={
+                        "topic": topic,
+                        "chapter_id": chapter_id,
+                        "retrieval_mode": retrieval_mode,
+                    },
+                    metadata={"question_id": q_id, "topic": topic, "chapter_id": chapter_id},
+                ) as lf_span:
+                    context, rag_debug = await adaptive_retrieve(
+                        topic,
+                        chapter_id,
+                        mode=retrieval_mode,
+                    )
+                    update_langfuse_observation(
+                        lf_span,
+                        output={
+                            "context_chars": len(context),
+                            "context_preview": truncate_for_langfuse(context, limit=2000),
+                        },
+                        metadata={**rag_debug, "question_id": q_id},
+                    )
         else:
             context, rag_debug = precomputed_rag
             print(f"    RAG cache hit [{q_id}]")
@@ -429,7 +490,14 @@ async def generate_one_mcq(
             previous_openings_block=previous_openings_block,
         )
         async with atimer("P1", q_id):
-            raw_p1 = await llm(p1_prompt, temperature=0.7, max_tokens=384)
+            raw_p1 = await llm(
+                p1_prompt,
+                temperature=0.7,
+                max_tokens=384,
+                stage="P1_gen_stem",
+                q_id=q_id,
+                metadata={"topic": topic, "chapter_id": chapter_id, "difficulty": difficulty},
+            )
         p1 = parse_json_output(raw_p1)
         if "error" in p1:
             log_llm_parse_error("P1", q_id, raw_p1, p1)
@@ -442,7 +510,14 @@ async def generate_one_mcq(
             misconception_guidance=misconception_guide,
         )
         async with atimer("P4", q_id):
-            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=768)
+            raw_p4 = await llm(
+                p4_prompt,
+                temperature=0.7,
+                max_tokens=768,
+                stage="P4_distractors",
+                q_id=q_id,
+                metadata={"topic": topic, "chapter_id": chapter_id, "difficulty": difficulty},
+            )
         p4 = parse_json_output(raw_p4)
         raw_candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
         candidates = extract_candidate_texts(raw_candidates)
@@ -455,20 +530,41 @@ async def generate_one_mcq(
 
         p5_prompt = build_p5_cot_evaluate(p1, candidates, correct_options)
         async with atimer("P5", q_id):
-            raw_p5 = await llm(p5_prompt, temperature=0.1, max_tokens=512)
+            raw_p5 = await llm(
+                p5_prompt,
+                temperature=0.1,
+                max_tokens=512,
+                stage="P5_evaluate_distractors",
+                q_id=q_id,
+                metadata={"topic": topic, "candidate_count": len(candidates)},
+            )
         p5 = parse_json_output(raw_p5)
         p5_evals = p5.get("evaluations", []) if "error" not in p5 else []
 
         p6_prompt = build_p6_remove_bad(p1, candidates, p5_evals)
         async with atimer("P6", q_id):
-            raw_p6 = await llm(p6_prompt, temperature=0.1, max_tokens=512)
+            raw_p6 = await llm(
+                p6_prompt,
+                temperature=0.1,
+                max_tokens=512,
+                stage="P6_remove_bad",
+                q_id=q_id,
+                metadata={"topic": topic, "candidate_count": len(candidates)},
+            )
         p6 = parse_json_output(raw_p6)
         kept = p6.get("kept_options", candidates[:3]) if "error" not in p6 else \
                [{"option_text": c} for c in candidates[:3]]
 
         p7_prompt = build_p7_select_final(p1, kept, 1)
         async with atimer("P7", q_id):
-            raw_p7 = await llm(p7_prompt, temperature=0.1, max_tokens=512)
+            raw_p7 = await llm(
+                p7_prompt,
+                temperature=0.1,
+                max_tokens=512,
+                stage="P7_select_final",
+                q_id=q_id,
+                metadata={"topic": topic, "kept_count": len(kept)},
+            )
         p7 = parse_json_output(raw_p7)
         selected = p7.get("selected_distractors", []) if "error" not in p7 else \
                    [{"option_text": c, "error_type": "fallback", "misleading_score": 5}
@@ -477,7 +573,14 @@ async def generate_one_mcq(
         # ── Call 6: P8 Assemble ───────────────────────────────────
         p8_prompt = build_p8_assemble(p1, selected[:3], correct_options)
         async with atimer("P8", q_id):
-            raw_p8 = await llm(p8_prompt, temperature=0.3, max_tokens=512)
+            raw_p8 = await llm(
+                p8_prompt,
+                temperature=0.3,
+                max_tokens=512,
+                stage="P8_assemble",
+                q_id=q_id,
+                metadata={"topic": topic, "selected_count": len(selected[:3])},
+            )
         p8 = parse_json_output(raw_p8)
         if "error" in p8:
             log_llm_parse_error("P8", q_id, raw_p8, p8)
@@ -494,7 +597,14 @@ async def generate_one_mcq(
                 p1.get("opening_family", ""),
             )
             async with atimer("OPENING_REPAIR", q_id):
-                raw_opening_repair = await llm(opening_repair_prompt, temperature=0.1, max_tokens=512)
+                raw_opening_repair = await llm(
+                    opening_repair_prompt,
+                    temperature=0.1,
+                    max_tokens=512,
+                    stage="opening_repair",
+                    q_id=q_id,
+                    metadata={"topic": topic, "opening_issues": opening_issues},
+                )
             repaired_opening = parse_json_output(raw_opening_repair)
             if "error" in repaired_opening:
                 log_llm_parse_error("OPENING_REPAIR", q_id, raw_opening_repair, repaired_opening)
@@ -510,7 +620,14 @@ async def generate_one_mcq(
         if ENABLE_LLM_EVAL:
             eval_prompt = build_eval_overall_prompt(p8)
             async with atimer("EVAL", q_id):
-                raw_eval = await llm(eval_prompt, temperature=0.1, max_tokens=512)
+                raw_eval = await llm(
+                    eval_prompt,
+                    temperature=0.1,
+                    max_tokens=512,
+                    stage="eval_overall",
+                    q_id=q_id,
+                    metadata={"topic": topic},
+                )
             eval_result = parse_json_output(raw_eval)
             if isinstance(eval_result, dict) and not eval_result.get("overall_valid", True):
                 print(f"  ⚠️  Rejected [{q_id}]: {eval_result.get('fail_reasons', [])}")
@@ -584,8 +701,10 @@ async def run_pipeline_with_topics(
     output_name: str = "exam",
     progress_callback=None,
     retrieval_mode: str = DEFAULT_RETRIEVAL_MODE,
+    trace_payload: dict | None = None,
 ) -> dict:
     """Được gọi từ Celery task."""
+    trace_payload = trace_payload or {}
     def emit_progress(progress: int, step: str, **meta):
         if not progress_callback:
             return
@@ -618,7 +737,38 @@ async def run_pipeline_with_topics(
         topic, chapter_id, mode = key
         cache_id = f"{topic_cfg.get('topic_id', 'topic')}:{topic}"
         async with atimer("RAG_PRECOMPUTE", cache_id):
-            rag_cache[key] = await adaptive_retrieve(topic, chapter_id, mode=mode)
+            with langfuse_observation(
+                "rag.precompute",
+                as_type="span",
+                input={
+                    "topic": topic,
+                    "chapter_id": chapter_id,
+                    "retrieval_mode": mode,
+                },
+                metadata={
+                    **trace_payload,
+                    "topic_id": topic_cfg.get("topic_id"),
+                    "topic": topic,
+                    "chapter_id": chapter_id,
+                    "retrieval_mode": mode,
+                },
+            ) as lf_span:
+                context, rag_debug = await adaptive_retrieve(topic, chapter_id, mode=mode)
+                rag_cache[key] = (context, rag_debug)
+                update_langfuse_observation(
+                    lf_span,
+                    output={
+                        "context_chars": len(context),
+                        "context_preview": truncate_for_langfuse(context, limit=2000),
+                    },
+                    metadata={
+                        **trace_payload,
+                        **rag_debug,
+                        "topic_id": topic_cfg.get("topic_id"),
+                        "topic": topic,
+                        "chapter_id": chapter_id,
+                    },
+                )
         progress = 10 + int((idx / total_topics) * 15) if total_topics else 25
         emit_progress(
             min(progress, 25),
@@ -653,14 +803,42 @@ async def run_pipeline_with_topics(
 
         key = (topic_cfg["topic"], topic_cfg["chapter_id"], retrieval_mode)
         try:
-            result = await generate_one_mcq(
-                topic_cfg,
-                seq,
-                precomputed_rag=rag_cache.get(key),
-                retrieval_mode=retrieval_mode,
-                opening_style_card=style_card,
-                previous_openings_block=prev_block,
-            )
+            q_id = f"{topic_cfg['topic_id']}_q{seq:02d}"
+            with langfuse_observation(
+                "mcqgen.question",
+                as_type="span",
+                input={
+                    "topic_config": topic_cfg,
+                    "seq": seq,
+                    "retrieval_mode": retrieval_mode,
+                },
+                metadata={
+                    **trace_payload,
+                    "question_id": q_id,
+                    "topic_id": topic_cfg.get("topic_id"),
+                    "topic": topic_cfg.get("topic"),
+                    "chapter_id": topic_cfg.get("chapter_id"),
+                    "difficulty": topic_cfg.get("difficulty"),
+                    "opening_family": family,
+                },
+            ) as lf_span:
+                result = await generate_one_mcq(
+                    topic_cfg,
+                    seq,
+                    precomputed_rag=rag_cache.get(key),
+                    retrieval_mode=retrieval_mode,
+                    opening_style_card=style_card,
+                    previous_openings_block=prev_block,
+                )
+                update_langfuse_observation(
+                    lf_span,
+                    output={
+                        "status": "accepted" if result else "failed",
+                        "question_id": result.get("question_id") if result else q_id,
+                        "rag_strategy": result.get("rag_strategy") if result else None,
+                        "rag_best_score": result.get("rag_best_score") if result else None,
+                    },
+                )
 
             # Update previous_openings after successful generation
             if result and result.get("question_text"):
@@ -704,6 +882,9 @@ async def run_pipeline_with_topics(
         if isinstance(result, Exception):
             print(f"  ❌ generation exception: {result!r}")
     accepted = [r for r in results if isinstance(r, dict) and r]
+    failed = len(all_tasks) - len(accepted)
+    score_langfuse_trace("accepted_questions", float(len(accepted)))
+    score_langfuse_trace("failed_questions", float(failed))
 
     # Save output
     out_dir = OUTPUT_DIR.parent / output_name
@@ -718,7 +899,7 @@ async def run_pipeline_with_topics(
 
     return {
         "accepted": len(accepted),
-        "failed": len(all_tasks) - len(accepted),
+        "failed": failed,
         "output_file": str(out_file),
         "mcqs": accepted,
         "question_concurrency": max_concurrent_questions,

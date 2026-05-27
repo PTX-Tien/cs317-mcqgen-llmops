@@ -1,7 +1,7 @@
 """
 api/main.py — MCQGen FastAPI server (Production-grade)
 """
-import asyncio, json, math, os, sys
+import asyncio, json, math, os, sys, uuid
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -28,6 +28,12 @@ from api.core.auth import (
 )
 from api.core.database import init_db, get_session, Exam, Question, QuizAttempt
 from api.pdf_exporter import export_exam_pdf
+from monitoring.langfuse_tracing import (
+    flush_langfuse,
+    langfuse_attributes,
+    langfuse_observation,
+    update_langfuse_observation,
+)
 
 # ── Setup ────────────────────────────────────────────────────────
 setup_logging()
@@ -217,24 +223,73 @@ def generate(
     if retrieval_mode not in {"fast", "auto", "quality"}:
         raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
-    queue = get_queue_snapshot()
-    jobs_ahead = queue["total_jobs"]
+    task_id = str(uuid.uuid4())
+    trace_payload = {
+        "task_id": task_id,
+        "user_id": user["username"],
+        "role": user.get("role"),
+        "exam_name": req.output_name,
+        "n_questions": n_q,
+        "topic_count": len(topics),
+        "retrieval_mode": retrieval_mode,
+        "topics": topics,
+    }
 
-    estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
-    queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
-    estimated_total_min = estimated_runtime_min + queue_wait_min
-    task = run_mcq_pipeline.delay(topics, req.output_name, retrieval_mode)
+    with langfuse_attributes(
+        user_id=user["username"],
+        session_id=task_id,
+        tags=["mcqgen", "api", "generate"],
+        metadata=trace_payload,
+    ):
+        with langfuse_observation(
+            "api.generate.submit",
+            as_type="span",
+            input={
+                "output_name": req.output_name,
+                "retrieval_mode": retrieval_mode,
+                "topics": topics,
+            },
+            metadata=trace_payload,
+        ) as lf_span:
+            queue = get_queue_snapshot()
+            jobs_ahead = queue["total_jobs"]
 
-    # Save to DB
-    exam = Exam(
-        task_id=task.id,
-        created_by=user["username"],
-        exam_name=req.output_name,
-        n_questions=n_q,
-        status="pending",
-    )
-    session.add(exam)
-    session.commit()
+            estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
+            queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
+            estimated_total_min = estimated_runtime_min + queue_wait_min
+            task = run_mcq_pipeline.apply_async(
+                args=[topics, req.output_name, retrieval_mode, trace_payload],
+                task_id=task_id,
+            )
+
+            update_langfuse_observation(
+                lf_span,
+                output={
+                    "task_id": task.id,
+                    "queue_position": jobs_ahead + 1,
+                    "active_jobs": queue["active_jobs"],
+                    "queued_jobs": queue["queued_jobs"],
+                    "estimated_total_min": estimated_total_min,
+                },
+                metadata={
+                    **trace_payload,
+                    "queue_depth": jobs_ahead,
+                    "active_jobs": queue["active_jobs"],
+                    "queued_jobs": queue["queued_jobs"],
+                },
+            )
+            flush_langfuse()
+
+            # Save to DB
+            exam = Exam(
+                task_id=task.id,
+                created_by=user["username"],
+                exam_name=req.output_name,
+                n_questions=n_q,
+                status="pending",
+            )
+            session.add(exam)
+            session.commit()
 
     log.info("job_submitted",
         task_id=task.id,
