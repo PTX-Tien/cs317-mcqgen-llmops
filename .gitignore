@@ -11,6 +11,22 @@ __pycache__/
 *.log
 logs/
 
+# Environment and local secrets
+.env
+.env.*
+**/.env
+**/.env.*
+*.env
+*.env.*
+.envrc
+**/.envrc
+!.env.example
+!**/.env.example
+!.env.sample
+!**/.env.sample
+!.env.template
+!**/.env.template
+
 # Data lớn — track bằng DVC thay vì git
 data/indexes/
 data/processed/
@@ -37,7 +53,6 @@ data/*.db
 webapp/.next/
 webapp/node_modules/
 webapp/tsconfig.tsbuildinfo
-webapp/.env.local
 
 # Temp files
 fix_*.py
@@ -48,6 +63,10 @@ test_output.json
 
 # vLLM
 vllm_server.log
-.env
 
 results
+
+.codex/
+AGENTS.md
+plan_for_tracing_vi.md
+.env.example

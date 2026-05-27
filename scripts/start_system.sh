@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 mkdir -p $LOG_DIR
 mkdir -p $PROJECT/redis_data
@@ -19,15 +19,15 @@ export PYTHONNOUSERSITE=1
 # this script if you need a strict GPU split between vLLM and RAG workers.
 export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-2,4}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/Thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
 # TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
 export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
-export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
-export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-1}
-export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
 export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
 export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
 export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
