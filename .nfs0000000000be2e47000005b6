@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Data lớn — track bằng DVC thay vì git
+data/indexes/
+data/processed/
+data/cleaned_transcript/
+data/concept_chunks.jsonl
+models/
+input/slide/
+input/video_transcript/
+
+# Redis
+redis_data/
+tmp/
+
+# Output experiments
+output/
+vllm/logs/
+vllm/results/
+vllm_demo_webapp/server.log
+
+# Local runtime DB
+data/*.db
+
+# Frontend build/dependencies
+webapp/.next/
+webapp/node_modules/
+webapp/tsconfig.tsbuildinfo
+webapp/.env.local
+
+# Temp files
+fix_*.py
+patch_*.py
+swap_*.py
+test_output.json
+*.tmp
+
+# vLLM
+vllm_server.log
+.env
+
+results
+dev
+
+.codex/
+.nfs000000000cc439e6000005b3
+AGENTS.md
+plan_for_tracing_vi.md
+scripts/.nfs000000000fcdaf54000005b4
