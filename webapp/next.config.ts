@@ -8,7 +8,7 @@ const configuredAllowedOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
 
 const localNetworkOrigins = Object.values(os.networkInterfaces())
   .flat()
-  .filter((item) => item && !item.internal && item.family === "IPv4")
+  .filter((item): item is os.NetworkInterfaceInfo => Boolean(item && !item.internal && item.family === "IPv4"))
   .map((item) => item.address);
 
 const nextConfig: NextConfig = {

@@ -16,9 +16,9 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "${LANGFUSE_PORT:-3000}:3000"
+      - "${LANGFUSE_PORT:-3003}:3000"
     environment: &langfuse-env
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3003}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       SALT: ${SALT}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
@@ -27,8 +27,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-langfuse}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: ${CLICKHOUSE_CLUSTER_ENABLED:-false}
+      CLICKHOUSE_MIGRATION_CLUSTER_ENABLED: ${CLICKHOUSE_MIGRATION_CLUSTER_ENABLED:-false}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${MINIO_BUCKET:-langfuse}
@@ -134,4 +137,3 @@ volumes:
   langfuse_clickhouse:
   langfuse_redis:
   langfuse_minio:
-
