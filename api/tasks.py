@@ -7,6 +7,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from celery import Celery
 from dotenv import load_dotenv
+from sqlmodel import Session
+from api.core.config import settings
+from api.core.database import (
+    engine,
+    format_exam_display_name,
+    persist_generation_failure,
+    persist_generation_success,
+)
 from monitoring.langfuse_tracing import (
     flush_langfuse,
     langfuse_attributes,
@@ -17,15 +25,30 @@ from monitoring.langfuse_tracing import (
 
 load_dotenv()
 
-REDIS_URL = "redis://localhost:6379/0"
-celery_app = Celery("mcqgen", broker=REDIS_URL, backend=REDIS_URL)
+celery_app = Celery("mcqgen", broker=settings.CELERY_BROKER, backend=settings.CELERY_BACKEND)
 celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
     task_track_started=True,
-    result_expires=3600,
+    result_expires=settings.TASK_RESULT_TTL,
 )
+
+
+def _persist_success(task_id: str, result: dict):
+    try:
+        with Session(engine) as session:
+            persist_generation_success(session, task_id, result)
+    except Exception as exc:
+        print(f"[DB_PERSIST_ERROR] task_id={task_id} status=success error={exc!r}")
+
+
+def _persist_failure(task_id: str, error: Exception):
+    try:
+        with Session(engine) as session:
+            persist_generation_failure(session, task_id, str(error))
+    except Exception as exc:
+        print(f"[DB_PERSIST_ERROR] task_id={task_id} status=failed error={exc!r}")
 
 @celery_app.task(bind=True)
 def run_mcq_pipeline(
@@ -86,6 +109,11 @@ def run_mcq_pipeline(
                 metadata=trace_metadata,
             ) as lf_span:
                 result = asyncio.run(_run())
+                if isinstance(result, dict):
+                    result.setdefault("output_name", output_name)
+                    result["display_name"] = format_exam_display_name(
+                        result.get("display_name") or trace_payload.get("exam_name") or output_name
+                    )
                 accepted = int(result.get("accepted", 0)) if isinstance(result, dict) else 0
                 failed = int(result.get("failed", 0)) if isinstance(result, dict) else 0
                 update_langfuse_observation(
@@ -99,8 +127,11 @@ def run_mcq_pipeline(
                 )
                 score_langfuse_trace("accepted_questions", float(accepted))
                 score_langfuse_trace("failed_questions", float(failed))
+                if isinstance(result, dict):
+                    _persist_success(task_id, result)
     except Exception as exc:
         score_langfuse_trace("job_failed", 1.0, comment=str(exc))
+        _persist_failure(task_id, exc)
         raise
     finally:
         flush_langfuse()

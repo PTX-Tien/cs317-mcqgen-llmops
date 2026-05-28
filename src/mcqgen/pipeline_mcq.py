@@ -379,6 +379,45 @@ def log_mcq_debug(q_id: str, mcq: dict):
     print(json.dumps(preview, ensure_ascii=False, indent=2))
 
 
+def failure_record(
+    q_id: str,
+    topic_cfg: dict,
+    stage: str,
+    reason: str,
+    details=None,
+) -> dict:
+    return {
+        "__failed__": True,
+        "failure": {
+            "question_id": q_id,
+            "topic_id": topic_cfg.get("topic_id"),
+            "topic": topic_cfg.get("topic"),
+            "chapter_id": topic_cfg.get("chapter_id"),
+            "difficulty": topic_cfg.get("difficulty"),
+            "stage": stage,
+            "reason": reason,
+            "details": details,
+        },
+    }
+
+
+def is_accepted_mcq(result) -> bool:
+    return isinstance(result, dict) and bool(result) and not result.get("__failed__")
+
+
+def collect_failure_records(results: list) -> list[dict]:
+    failures: list[dict] = []
+    for result in results:
+        if isinstance(result, dict) and result.get("__failed__"):
+            failures.append(result.get("failure", {}))
+        elif isinstance(result, Exception):
+            failures.append({
+                "stage": "exception",
+                "reason": repr(result),
+            })
+    return failures
+
+
 @asynccontextmanager
 async def atimer(name: str, q_id: str):
     t0 = time.perf_counter()
@@ -501,7 +540,7 @@ async def generate_one_mcq(
         p1 = parse_json_output(raw_p1)
         if "error" in p1:
             log_llm_parse_error("P1", q_id, raw_p1, p1)
-            return None
+            return failure_record(q_id, topic_cfg, "P1_parse", "parse_failed", p1.get("error"))
 
         # ── Call 2: P4 Gen Distractors (Phase 3: misconception-guided) ──
         misconception_guide = build_misconception_guidance(topic)
@@ -523,7 +562,7 @@ async def generate_one_mcq(
         candidates = extract_candidate_texts(raw_candidates)
         if not candidates:
             log_llm_parse_error("P4", q_id, raw_p4, p4)
-            return None
+            return failure_record(q_id, topic_cfg, "P4_distractors", "no_candidates", p4.get("error"))
 
         # ── Call 3-5: P5+P6+P7 Select Distractors ─────────────────
         correct_options = p1.get("correct_answers_content", [])
@@ -584,7 +623,7 @@ async def generate_one_mcq(
         p8 = parse_json_output(raw_p8)
         if "error" in p8:
             log_llm_parse_error("P8", q_id, raw_p8, p8)
-            return None
+            return failure_record(q_id, topic_cfg, "P8_assemble", "parse_failed", p8.get("error"))
         opening_issues = final_opening_issues(
             p8.get("question_text", ""),
             p1.get("opening_family", ""),
@@ -608,10 +647,22 @@ async def generate_one_mcq(
             repaired_opening = parse_json_output(raw_opening_repair)
             if "error" in repaired_opening:
                 log_llm_parse_error("OPENING_REPAIR", q_id, raw_opening_repair, repaired_opening)
-                return None
+                return failure_record(
+                    q_id,
+                    topic_cfg,
+                    "opening_repair",
+                    "parse_failed",
+                    repaired_opening.get("error"),
+                )
             if final_opening_issues(repaired_opening.get("question_text", ""), p1.get("opening_family", "")):
                 print(f"  ❌ OPENING_REJECT [{q_id}]: still has bad opening")
-                return None
+                return failure_record(
+                    q_id,
+                    topic_cfg,
+                    "opening_repair",
+                    "still_has_bad_opening",
+                    opening_issues,
+                )
             p8 = repaired_opening
 
         log_mcq_debug(q_id, p8)
@@ -631,7 +682,13 @@ async def generate_one_mcq(
             eval_result = parse_json_output(raw_eval)
             if isinstance(eval_result, dict) and not eval_result.get("overall_valid", True):
                 print(f"  ⚠️  Rejected [{q_id}]: {eval_result.get('fail_reasons', [])}")
-                return None
+                return failure_record(
+                    q_id,
+                    topic_cfg,
+                    "eval_overall",
+                    "overall_invalid",
+                    eval_result.get("fail_reasons", []),
+                )
         else:
             eval_result = {
                 "enabled": False,
@@ -676,8 +733,9 @@ async def run_pipeline():
     )
     results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
-    accepted = [r for r in results if isinstance(r, dict) and r]
-    failed   = len(all_tasks) - len(accepted)
+    accepted = [r for r in results if is_accepted_mcq(r)]
+    failures = collect_failure_records(results)
+    failed   = len(failures)
     total_t  = time.time() - t0
 
     # Save
@@ -723,7 +781,7 @@ async def run_pipeline_with_topics(
     if retrieval_mode not in {"fast", "auto", "quality"}:
         retrieval_mode = "auto"
 
-    emit_progress(10, "retrieving_context",
+    emit_progress(10, "Đang tìm tài liệu liên quan",
                   current_question=0, total_questions=total_questions)
 
     rag_cache: dict[tuple[str, str, str], tuple[str, dict]] = {}
@@ -772,7 +830,7 @@ async def run_pipeline_with_topics(
         progress = 10 + int((idx / total_topics) * 15) if total_topics else 25
         emit_progress(
             min(progress, 25),
-            f"retrieving_context {idx}/{total_topics}",
+            f"Đang tìm tài liệu liên quan ({idx}/{total_topics})",
             current_question=0,
             total_questions=total_questions,
             current_topic=idx,
@@ -802,8 +860,8 @@ async def run_pipeline_with_topics(
             used_families.append(family)
 
         key = (topic_cfg["topic"], topic_cfg["chapter_id"], retrieval_mode)
+        q_id = f"{topic_cfg.get('topic_id', 'topic')}_q{seq:02d}"
         try:
-            q_id = f"{topic_cfg['topic_id']}_q{seq:02d}"
             with langfuse_observation(
                 "mcqgen.question",
                 as_type="span",
@@ -833,28 +891,31 @@ async def run_pipeline_with_topics(
                 update_langfuse_observation(
                     lf_span,
                     output={
-                        "status": "accepted" if result else "failed",
-                        "question_id": result.get("question_id") if result else q_id,
-                        "rag_strategy": result.get("rag_strategy") if result else None,
-                        "rag_best_score": result.get("rag_best_score") if result else None,
+                        "status": "accepted" if is_accepted_mcq(result) else "failed",
+                        "question_id": result.get("question_id") if is_accepted_mcq(result) else q_id,
+                        "rag_strategy": result.get("rag_strategy") if is_accepted_mcq(result) else None,
+                        "rag_best_score": result.get("rag_best_score") if is_accepted_mcq(result) else None,
                     },
                 )
 
             # Update previous_openings after successful generation
-            if result and result.get("question_text"):
+            if is_accepted_mcq(result) and result.get("question_text"):
                 opening = extract_opening_prefix(result["question_text"])
                 if opening:
                     async with _diversity_lock:
                         previous_openings.append(opening)
 
             return result
+        except Exception as exc:
+            print(f"  ❌ generation exception [{q_id}]: {exc!r}")
+            return failure_record(q_id, topic_cfg, "exception", repr(exc))
         finally:
             completed_questions += 1
             progress = 25 + int((completed_questions / total_questions) * 65) \
                 if total_questions else 90
             emit_progress(
                 min(progress, 90),
-                f"generating {completed_questions}/{total_questions}",
+                "Đang sinh câu hỏi",
                 current_question=completed_questions,
                 total_questions=total_questions,
             )
@@ -868,8 +929,7 @@ async def run_pipeline_with_topics(
 
     emit_progress(
         25,
-        f"generating question_concurrency={max_concurrent_questions} "
-        f"llm_concurrency={MAX_CONCURRENT_LLM_REQUESTS}",
+        "Đang sinh câu hỏi",
         current_question=0,
         total_questions=total_questions,
         question_concurrency=max_concurrent_questions,
@@ -878,11 +938,9 @@ async def run_pipeline_with_topics(
 
     all_tasks = [bounded_tracked_generate(topic_cfg, seq) for topic_cfg, seq in task_specs]
     results = await asyncio.gather(*all_tasks, return_exceptions=True) if all_tasks else []
-    for result in results:
-        if isinstance(result, Exception):
-            print(f"  ❌ generation exception: {result!r}")
-    accepted = [r for r in results if isinstance(r, dict) and r]
-    failed = len(all_tasks) - len(accepted)
+    accepted = [r for r in results if is_accepted_mcq(r)]
+    failures = collect_failure_records(results)
+    failed = len(failures)
     score_langfuse_trace("accepted_questions", float(len(accepted)))
     score_langfuse_trace("failed_questions", float(failed))
 
@@ -894,12 +952,13 @@ async def run_pipeline_with_topics(
         for mcq in accepted:
             f.write(json.dumps(mcq, ensure_ascii=False) + "\n")
 
-    emit_progress(95, "saving",
+    emit_progress(95, "Đang lưu đề thi",
                   current_question=total_questions, total_questions=total_questions)
 
     return {
         "accepted": len(accepted),
         "failed": failed,
+        "failures": failures,
         "output_file": str(out_file),
         "mcqs": accepted,
         "question_concurrency": max_concurrent_questions,
