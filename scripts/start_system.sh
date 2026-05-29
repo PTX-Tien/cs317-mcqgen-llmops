@@ -1,8 +1,9 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
+LANGFUSE_ENV_FILE=$PROJECT/monitoring/langfuse/.env
 mkdir -p $LOG_DIR
 mkdir -p $PROJECT/redis_data
 mkdir -p $PROJECT/tmp
@@ -19,15 +20,15 @@ export PYTHONNOUSERSITE=1
 # this script if you need a strict GPU split between vLLM and RAG workers.
 export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-2,4}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/Thanhld/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
 # TP=4 avoids CPU offload; keep per-GPU reservation low because GPUs are shared.
 export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
-export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
-export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-1}
-export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
+export VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-4}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
 export VLLM_CPU_OFFLOAD_GB=${VLLM_CPU_OFFLOAD_GB:-0}
 export VLLM_TIMEOUT=${VLLM_TIMEOUT:-180}
 export VLLM_MAX_RETRIES=${VLLM_MAX_RETRIES:-1}
@@ -36,6 +37,11 @@ export MCQGEN_LLM_MAX_CONCURRENCY=${MCQGEN_LLM_MAX_CONCURRENCY:-$VLLM_MAX_NUM_SE
 export VLLM_PORT=${VLLM_PORT:-7681}
 export VLLM_URL=${VLLM_URL:-http://localhost:${VLLM_PORT}/v1}
 export VLLM_MODEL=mcqgen
+LANGFUSE_PORT=3003
+if [ -f "$LANGFUSE_ENV_FILE" ]; then
+    LANGFUSE_PORT=$(sed -n 's/^LANGFUSE_PORT=//p' "$LANGFUSE_ENV_FILE" | tail -n 1)
+    LANGFUSE_PORT=${LANGFUSE_PORT:-3003}
+fi
 
 VLLM_CPU_OFFLOAD_ARGS=""
 if [ "$VLLM_CPU_OFFLOAD_GB" != "0" ] && [ "$VLLM_CPU_OFFLOAD_GB" != "0.0" ]; then
@@ -85,7 +91,7 @@ log "vLLM max_model_len=$VLLM_MAX_MODEL_LEN max_num_seqs=$VLLM_MAX_NUM_SEQS | qu
 log "════════════════════════════════════"
 
 # ── STEP 1: Redis (synchronous — phải ready trước) ───────────────
-log "[1/6] Redis..."
+log "[1/7] Redis..."
 if redis-cli ping 2>/dev/null | grep -q PONG; then
     log "✅ Redis already running"
 else
@@ -97,7 +103,7 @@ fi
 wait_until "Redis" "redis-cli ping 2>/dev/null | grep -q PONG"
 
 # ── STEP 2: Start PARALLEL — vLLM + Phoenix + Next.js ────────────
-log "[2/6] Starting vLLM, Phoenix, Next.js in parallel..."
+log "[2/7] Starting vLLM, Phoenix, Next.js in parallel..."
 
 # vLLM
 start_bg "vLLM" \
@@ -127,7 +133,7 @@ start_bg "Next.js" \
     "$LOG_DIR/nextjs.log"
 
 # ── STEP 3: Celery — chỉ cần Redis (đã ready) ───────────────────
-log "[3/6] Celery worker..."
+log "[3/7] Celery worker..."
 pkill -f "celery.*worker" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker \
@@ -137,7 +143,7 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup celery -A api.tasks worker
 log "   PID=$! | log=$LOG_DIR/celery.log"
 
 # ── STEP 4: FastAPI — chỉ cần Redis (đã ready) ──────────────────
-log "[4/6] FastAPI..."
+log "[4/7] FastAPI..."
 pkill -f "uvicorn.*api.main" 2>/dev/null || true
 sleep 2
 CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
@@ -146,11 +152,21 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
 # ── STEP 5: Wait vLLM (blocking — phải ready trước khi thông báo) 
-log "[5/6] Waiting for vLLM to finish loading model..."
+log "[5/7] Waiting for vLLM to finish loading model..."
 wait_until "vLLM" "curl -s http://localhost:$VLLM_PORT/health"
 
-# ── STEP 6: Prometheus + Grafana (Docker) ────────────────────────
-log "[6/6] Prometheus + Grafana..."
+# ── STEP 6: LangFuse (Docker) ────────────────────────────────────
+log "[6/7] LangFuse..."
+bash "$PROJECT/scripts/start_langfuse.sh" > "$LOG_DIR/langfuse.log" 2>&1 \
+    && log "✅ LangFuse startup submitted | log=$LOG_DIR/langfuse.log" \
+    || log "⚠️ LangFuse startup failed | log=$LOG_DIR/langfuse.log"
+if [ -f "$LANGFUSE_ENV_FILE" ]; then
+    LANGFUSE_PORT=$(sed -n 's/^LANGFUSE_PORT=//p' "$LANGFUSE_ENV_FILE" | tail -n 1)
+    LANGFUSE_PORT=${LANGFUSE_PORT:-3003}
+fi
+
+# ── STEP 7: Prometheus + Grafana (Docker) ────────────────────────
+log "[7/7] Prometheus + Grafana..."
 cd monitoring 2>/dev/null || true
 docker compose up prometheus grafana -d 2>/dev/null || true
 cd ..
@@ -175,6 +191,9 @@ check_service() {
 check_service "Redis    " "redis-cli ping 2>/dev/null | grep -q PONG" ":6379"
 check_service "vLLM     " "curl -s http://localhost:$VLLM_PORT/health" ":$VLLM_PORT"
 check_service "Phoenix  " "curl -s http://localhost:6006/healthz"      ":6006"
+if [ -f "$LANGFUSE_ENV_FILE" ]; then
+    check_service "LangFuse " "curl -s http://localhost:$LANGFUSE_PORT" ":$LANGFUSE_PORT"
+fi
 check_service "Next.js  " "curl -s http://localhost:3002"              ":3002"
 check_service "FastAPI  " "curl -s http://localhost:8080/health"        ":8080"
 
@@ -186,4 +205,7 @@ echo "  🌐 UI:        http://$IP:3002"
 echo "  🌐 UI:        http://$IP:8501"
 echo "  🔧 API docs:  http://$IP:8080/docs"
 echo "  📈 Monitor:   http://$IP:6006"
+if [ -f "$LANGFUSE_ENV_FILE" ]; then
+    echo "  📈 LangFuse:  http://$IP:$LANGFUSE_PORT"
+fi
 log "════════════════════════════════════"
