@@ -8,12 +8,6 @@ from pathlib import Path
 from openai import AsyncOpenAI
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import chromadb
-from monitoring.langfuse_tracing import (
-    langfuse_observation,
-    truncate_for_langfuse,
-    update_langfuse_observation,
-    usage_details_from_response,
-)
 
 # ── Config ────────────────────────────────────────────────────────
 INDEX_DIR  = Path("data/indexes")
@@ -34,37 +28,21 @@ print("Models ready.\n")
 # ── Step 1: HyDE — generate hypothetical question ─────────────────
 async def generate_hyde_query(topic: str) -> str:
     """Dùng LLM tạo câu hỏi giả định → embed thay vì embed raw topic."""
-    prompt = (
-        f'[QUAN TRỌNG: Trả lời HOÀN TOÀN bằng tiếng Việt]\n'
-        f'Môn CS116 tại ĐH CNTT TP.HCM sử dụng: Python, NumPy, Pandas, Scikit-learn, PyTorch, Matplotlib.\n'
-        f'KHÔNG đề cập TensorFlow, Keras, R, MATLAB.\n'
-        f'Viết 1 câu hỏi trắc nghiệm ngắn bằng TIẾNG VIỆT về "{topic}".\n'
-        f'Yêu cầu: chỉ câu hỏi stem tiếng Việt, đề cập tên hàm/thư viện/thuật toán cụ thể trong môn học.\n'
-        f'Ví dụ tốt: "Tầng Convolution trong mạng CNN với PyTorch sử dụng lớp nào để thực hiện tích chập?"\n'
-        f'Ví dụ tốt: "Tham số max_depth trong DecisionTreeClassifier của sklearn có tác dụng gì?"'
-    )
-    with langfuse_observation(
-        "llm.hyde_query",
-        as_type="generation",
-        input=[{"role": "user", "content": truncate_for_langfuse(prompt)}],
-        metadata={"topic": topic, "stage": "hyde_query", "vllm_url": VLLM_URL},
+    resp = await llm_client.chat.completions.create(
         model=MODEL,
-        model_parameters={"temperature": 0.2, "max_tokens": 100, "enable_thinking": False},
-    ) as lf_span:
-        resp = await llm_client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=100,
-            temperature=0.2,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-        )
-    text = resp.choices[0].message.content.strip()
-    update_langfuse_observation(
-        lf_span,
-        output=truncate_for_langfuse(text),
-        usage_details=usage_details_from_response(resp),
+        messages=[{"role": "user", "content":
+            f'[QUAN TRỌNG: Trả lời HOÀN TOÀN bằng tiếng Việt]\n'
+            f'Môn CS116 tại ĐH CNTT TP.HCM sử dụng: Python, NumPy, Pandas, Scikit-learn, PyTorch, Matplotlib.\n'
+            f'KHÔNG đề cập TensorFlow, Keras, R, MATLAB.\n'
+            f'Viết 1 câu hỏi trắc nghiệm ngắn bằng TIẾNG VIỆT về "{topic}".\n'
+            f'Yêu cầu: chỉ câu hỏi stem tiếng Việt, đề cập tên hàm/thư viện/thuật toán cụ thể trong môn học.\n'
+            f'Ví dụ tốt: "Tầng Convolution trong mạng CNN với PyTorch sử dụng lớp nào để thực hiện tích chập?"\n'
+            f'Ví dụ tốt: "Tham số max_depth trong DecisionTreeClassifier của sklearn có tác dụng gì?"'}],
+        max_tokens=100,
+        temperature=0.2,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}}
     )
-    return text
+    return resp.choices[0].message.content.strip()
 
 
 # ── Step 2: Dual embedding (topic + HyDE) ─────────────────────────

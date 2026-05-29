@@ -8,6 +8,7 @@ import {
   Zap,
   History,
   Shield,
+  BookOpen,
   Sun,
   Moon,
   Menu,
@@ -96,14 +97,14 @@ export default function DashboardLayout({
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F4F7FC] dark:bg-slate-900">
+    <div className="min-h-screen bg-[#F4F7FC] dark:bg-slate-900 flex">
       {/* ───────────── Sidebar ───────────── */}
       <aside
         className={`
           ${sidebarOpen ? "w-[270px]" : "w-[76px]"}
           bg-gradient-to-b from-[#001B4D] to-[#001133]
           text-white flex flex-col shadow-2xl
-          sticky top-0 z-50 h-screen transition-all duration-300 ease-in-out overflow-hidden shrink-0
+          transition-all duration-300 ease-in-out overflow-hidden shrink-0
         `}
       >
         {/* Logo */}
@@ -174,9 +175,9 @@ export default function DashboardLayout({
       </aside>
 
       {/* ───────────── Main ───────────── */}
-      <div className="flex-1 flex min-h-0 flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Top navbar */}
-        <nav className="sticky top-0 z-40 h-[88px] bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 flex items-center justify-between shadow-sm shrink-0">
+        <nav className="h-[88px] bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-8 flex items-center justify-between shadow-sm shrink-0">
           {/* Burger button */}
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
@@ -230,7 +231,7 @@ export default function DashboardLayout({
         </nav>
 
         {/* Content */}
-        <main className="min-h-0 flex-1 overflow-y-auto px-8 py-8">{children}</main>
+        <main className="flex-1 overflow-y-auto px-8 py-8">{children}</main>
       </div>
     </div>
   );
