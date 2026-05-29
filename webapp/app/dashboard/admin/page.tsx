@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
-import { formatExamDisplayName } from "@/lib/exam-name"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -144,7 +143,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="sticky top-0 z-30 -mx-8 -mt-8 border-b border-slate-200/70 bg-[#F4F7FC]/95 px-8 py-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div>
         <h1 className="text-2xl font-bold">⚙️ Admin Dashboard</h1>
         <p className="text-slate-500 text-sm">Quản lý hệ thống và dữ liệu</p>
       </div>
@@ -189,7 +188,7 @@ export default function AdminPage() {
               <tbody>
                 {exams.map((exam) => (
                   <tr key={exam.id} className="border-b hover:bg-slate-50">
-                    <td className="py-2 pr-4 font-medium">{formatExamDisplayName(exam.exam_name)}</td>
+                    <td className="py-2 pr-4 font-medium">{exam.exam_name}</td>
                     <td className="py-2 pr-4 text-slate-500">{exam.created_by}</td>
                     <td className="py-2 pr-4">{exam.n_questions}</td>
                     <td className="py-2 pr-4">

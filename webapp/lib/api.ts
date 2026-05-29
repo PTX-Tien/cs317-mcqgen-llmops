@@ -1,22 +1,7 @@
 import axios from "axios";
 
-const normalizeUrl = (value?: string) => value?.trim().replace(/\/$/, "") || "";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
 
-const browserBackendUrl = (kind: "http" | "ws") => {
-  if (typeof window === "undefined") return "";
-  const protocol =
-    kind === "ws"
-      ? window.location.protocol === "https:"
-        ? "wss"
-        : "ws"
-      : window.location.protocol.replace(":", "");
-  return `${protocol}://${window.location.hostname}:8080`;
-};
-
-const API_URL =
-  normalizeUrl(process.env.NEXT_PUBLIC_API_URL) ||
-  browserBackendUrl("http") ||
-  "http://127.0.0.1:8080";
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -45,7 +30,4 @@ api.interceptors.response.use(
   },
 );
 
-export const WS_URL =
-  normalizeUrl(process.env.NEXT_PUBLIC_WS_URL) ||
-  browserBackendUrl("ws") ||
-  "ws://127.0.0.1:8080";
+export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080"
