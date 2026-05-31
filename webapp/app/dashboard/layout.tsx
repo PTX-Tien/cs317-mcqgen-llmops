@@ -230,7 +230,9 @@ export default function DashboardLayout({
         </nav>
 
         {/* Content */}
-        <main className="min-h-0 flex-1 overflow-y-auto px-8 py-8">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
+          {children}
+        </main>
       </div>
     </div>
   );

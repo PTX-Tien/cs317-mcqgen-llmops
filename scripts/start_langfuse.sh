@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
 LANGFUSE_DIR="$PROJECT/monitoring/langfuse"
 ENV_FILE="$LANGFUSE_DIR/.env"
 ENV_EXAMPLE="$LANGFUSE_DIR/.env.example"
