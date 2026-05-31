@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCQGen System Startup — Production grade
 
-PROJECT=/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+PROJECT=/mmlab_students/storageStudents/nguyenvd/trangbtt/cs317-mcqgen-llmops
 LOG_DIR=$PROJECT/logs
 LANGFUSE_ENV_FILE=$PROJECT/monitoring/langfuse/.env
 mkdir -p $LOG_DIR
@@ -19,8 +19,8 @@ export PYTHONNOUSERSITE=1
 # Use TP=4 so vLLM stays GPU-only. Override these two variables before running
 # this script if you need a strict GPU split between vLLM and RAG workers.
 export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
-export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-2,4}
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/Thanhld/.cache/huggingface
+export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # Latency-first defaults for Qwen2.5-7B-Instruct on RTX 2080 Ti.
@@ -151,9 +151,14 @@ CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES nohup uvicorn api.main:app \
     > $LOG_DIR/fastapi.log 2>&1 &
 log "   PID=$! | log=$LOG_DIR/fastapi.log"
 
-# ── STEP 5: Wait vLLM (blocking — phải ready trước khi thông báo) 
-log "[5/7] Waiting for vLLM to finish loading model..."
-wait_until "vLLM" "curl -s http://localhost:$VLLM_PORT/health"
+# ── STEP 5: Optional vLLM health check (non-blocking) ───────────
+log "[5/7] Checking vLLM status (non-blocking)..."
+
+if curl -s http://localhost:$VLLM_PORT/health >/dev/null 2>&1; then
+    log "✅ vLLM is ready"
+else
+    log "⚠️ vLLM still loading or failed — continuing startup"
+fi
 
 # ── STEP 6: LangFuse (Docker) ────────────────────────────────────
 log "[6/7] LangFuse..."
