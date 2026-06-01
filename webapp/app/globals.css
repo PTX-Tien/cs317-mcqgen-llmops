@@ -128,3 +128,95 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  .math-text {
+    overflow-wrap: anywhere;
+  }
+
+  .math-inline,
+  .math-display {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: 0;
+    color: inherit;
+  }
+
+  .math-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.08rem;
+    max-width: 100%;
+    vertical-align: -0.12em;
+    white-space: normal;
+  }
+
+  .math-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0.5rem 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .math-frac {
+    display: inline-grid;
+    grid-template-rows: auto auto;
+    align-items: center;
+    justify-items: center;
+    line-height: 1.05;
+    vertical-align: middle;
+  }
+
+  .math-frac-num,
+  .math-frac-den {
+    display: block;
+    padding: 0 0.18rem;
+  }
+
+  .math-frac-num {
+    border-bottom: 1px solid currentColor;
+  }
+
+  .math-sqrt {
+    display: inline-flex;
+    align-items: stretch;
+    vertical-align: middle;
+  }
+
+  .math-radical {
+    padding-right: 0.05rem;
+    font-size: 1.08em;
+  }
+
+  .math-radicand {
+    border-top: 1px solid currentColor;
+    padding: 0 0.12rem;
+  }
+
+  .math-hat,
+  .math-bar {
+    position: relative;
+    display: inline-block;
+    padding-top: 0.15em;
+  }
+
+  .math-hat::before {
+    content: "^";
+    position: absolute;
+    left: 50%;
+    top: -0.34em;
+    transform: translateX(-50%);
+    font-size: 0.8em;
+    line-height: 1;
+  }
+
+  .math-bar::before {
+    content: "";
+    position: absolute;
+    left: 0.05em;
+    right: 0.05em;
+    top: 0.05em;
+    border-top: 1px solid currentColor;
+  }
+}
