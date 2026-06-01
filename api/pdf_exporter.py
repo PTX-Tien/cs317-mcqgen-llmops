@@ -2,6 +2,8 @@
 pdf_exporter.py — Export MCQ sang PDF đề thi chuẩn
 """
 import io
+import re
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
@@ -13,6 +15,7 @@ from reportlab.platypus import (
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from src.mcqgen.math_format import normalize_math_text
 
 # ── Font hỗ trợ tiếng Việt ────────────────────────────────────────
 import os, subprocess
@@ -37,6 +40,125 @@ def _setup_font():
 
 FONT = _setup_font()
 FONT_BOLD = f"{FONT}-Bold" if FONT != "Helvetica" else "Helvetica-Bold"
+
+_MATH_SPLIT_RE = re.compile(r"(\$\$.*?\$\$|\$[^$\n].*?\$)", re.DOTALL)
+_LATEX_SYMBOLS = {
+    "le": "≤",
+    "ge": "≥",
+    "neq": "≠",
+    "approx": "≈",
+    "times": "×",
+    "cdot": "·",
+    "pm": "±",
+    "infty": "∞",
+    "sum": "∑",
+    "prod": "∏",
+    "nabla": "∇",
+    "Delta": "Δ",
+    "alpha": "α",
+    "beta": "β",
+    "gamma": "γ",
+    "delta": "δ",
+    "lambda": "λ",
+    "mu": "μ",
+    "sigma": "σ",
+    "theta": "θ",
+    "pi": "π",
+}
+
+
+def _read_latex_group(text: str, start: int) -> tuple[str, int]:
+    if start >= len(text):
+        return "", start
+    if text[start] != "{":
+        return text[start], start + 1
+
+    depth = 0
+    for idx in range(start, len(text)):
+        char = text[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:idx], idx + 1
+    return text[start + 1:], len(text)
+
+
+def _latex_to_reportlab(text: str) -> str:
+    """Convert a small, common LaTeX subset to ReportLab paragraph markup."""
+
+    text = text.strip().replace("\\\\", "\\")
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char == "\\":
+            match = re.match(r"\\([A-Za-z]+)", text[i:])
+            if not match:
+                out.append(escape(char))
+                i += 1
+                continue
+            command = match.group(1)
+            i += len(command) + 1
+            if command == "frac":
+                numerator, i = _read_latex_group(text, i)
+                denominator, i = _read_latex_group(text, i)
+                out.append(
+                    f"({_latex_to_reportlab(numerator)}) / ({_latex_to_reportlab(denominator)})"
+                )
+            elif command == "sqrt":
+                radicand, i = _read_latex_group(text, i)
+                out.append(f"√({_latex_to_reportlab(radicand)})")
+            elif command == "hat":
+                value, i = _read_latex_group(text, i)
+                if value == "y":
+                    out.append("ŷ")
+                else:
+                    out.append(f"{_latex_to_reportlab(value)}<super>^</super>")
+            elif command == "bar":
+                value, i = _read_latex_group(text, i)
+                out.append(f"{_latex_to_reportlab(value)}&#772;")
+            else:
+                out.append(_LATEX_SYMBOLS.get(command, escape(command)))
+            continue
+
+        if char in {"^", "_"}:
+            tag = "super" if char == "^" else "sub"
+            value, i = _read_latex_group(text, i + 1)
+            out.append(f"<{tag}>{_latex_to_reportlab(value)}</{tag}>")
+            continue
+
+        if char == "{":
+            value, i = _read_latex_group(text, i)
+            out.append(_latex_to_reportlab(value))
+            continue
+
+        if char == "}":
+            i += 1
+            continue
+
+        out.append(escape(char))
+        i += 1
+    return "".join(out)
+
+
+def _format_rich_text(value: str) -> str:
+    """Escape normal text and convert `$...$` math for ReportLab Paragraph."""
+
+    text = normalize_math_text(value or "")
+    pieces = _MATH_SPLIT_RE.split(text)
+    rendered: list[str] = []
+    for piece in pieces:
+        if not piece:
+            continue
+        if piece.startswith("$$") and piece.endswith("$$"):
+            rendered.append(_latex_to_reportlab(piece[2:-2]))
+        elif piece.startswith("$") and piece.endswith("$"):
+            rendered.append(_latex_to_reportlab(piece[1:-1]))
+        else:
+            rendered.append(escape(piece).replace("\n", "<br/>"))
+    return "".join(rendered)
 
 # ── Styles ────────────────────────────────────────────────────────
 def _get_styles():
@@ -155,17 +277,17 @@ def _build_exam_content(mcqs: list[dict], styles: dict,
 
         # Question stem
         story.append(Paragraph(
-            f"<b>Câu {i}.</b> {q_text}",
+            f"<b>Câu {i}.</b> {_format_rich_text(q_text)}",
             styles["question"]))
 
         # Options
         for key, val in options.items():
             if show_answers and key in correct:
                 style = styles["option_correct"]
-                prefix = f"<b>{key}. ✓ {val}</b>"
+                prefix = f"<b>{key}. ✓ {_format_rich_text(val)}</b>"
             else:
                 style = styles["option"]
-                prefix = f"{key}. {val}"
+                prefix = f"{key}. {_format_rich_text(val)}"
             story.append(Paragraph(prefix, style))
 
         story.append(Spacer(1, 0.3*cm))
@@ -173,7 +295,7 @@ def _build_exam_content(mcqs: list[dict], styles: dict,
         # Subtle topic label
         if topic:
             story.append(Paragraph(
-                f"<font size='8' color='#aaaaaa'>[{topic}]</font>",
+                f"<font size='8' color='#aaaaaa'>[{_format_rich_text(topic)}]</font>",
                 styles["answer_key"]))
 
         story.append(HRFlowable(width=W, thickness=0.3,

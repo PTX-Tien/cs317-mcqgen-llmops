@@ -27,6 +27,7 @@ from monitoring.langfuse_tracing import (
     usage_details_from_response,
 )
 from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
+from .math_format import normalize_mcq_math
 from .opening_families import (
     select_opening_family,
     build_opening_style_card,
@@ -665,6 +666,7 @@ async def generate_one_mcq(
                 )
             p8 = repaired_opening
 
+        p8 = normalize_mcq_math(p8)
         log_mcq_debug(q_id, p8)
 
         # ── Optional Call 7: Eval Overall ─────────────────────────

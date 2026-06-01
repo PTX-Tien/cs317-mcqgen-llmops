@@ -30,6 +30,7 @@ import {
   Clock,
   CheckCircle2,
   ClipboardList,
+  KeyRound,
 } from "lucide-react";
 
 interface Exam {
@@ -46,6 +47,7 @@ interface Exam {
   quality_avg: number | null;
   created_by: string;
   failures?: unknown[];
+  has_attempt?: boolean;
 }
 
 const INITIAL_VISIBLE = 3;
@@ -116,15 +118,6 @@ export default function HistoryPage() {
       a.click();
     } catch {
       toast.error("Lỗi tải PDF");
-    }
-  };
-
-  const handleViewResults = async (taskId: string) => {
-    try {
-      await api.get(`/results/${taskId}`);
-      router.push(`/dashboard/exam/${taskId}`);
-    } catch {
-      toast.error("Không tải được kết quả đề thi");
     }
   };
 
@@ -383,10 +376,26 @@ export default function HistoryPage() {
                                 size="sm"
                                 variant="outline"
                                 className="h-8 gap-1.5 text-xs border-slate-200 hover:border-slate-300"
-                                onClick={() => handleViewResults(exam.task_id)}
+                                onClick={() =>
+                                  router.push(`/dashboard/exam/${exam.task_id}`)
+                                }
                               >
                                 <Eye size={13} />
-                                Xem
+                                Xem đề
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!exam.has_attempt}
+                                className="h-8 gap-1.5 text-xs border-slate-200 hover:border-slate-300 disabled:opacity-45"
+                                onClick={() =>
+                                  router.push(
+                                    `/dashboard/exam/${exam.task_id}?answers=1`,
+                                  )
+                                }
+                              >
+                                <KeyRound size={13} />
+                                Đáp án
                               </Button>
                               <Button
                                 size="sm"

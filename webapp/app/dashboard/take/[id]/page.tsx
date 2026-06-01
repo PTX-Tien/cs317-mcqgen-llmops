@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { MathText } from "@/components/math-text"
 import { toast } from "sonner"
 import { ArrowLeft, CheckCircle2, FileText, Send, XCircle } from "lucide-react"
 
@@ -157,7 +158,7 @@ export default function TakeExamPage() {
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="min-w-0 flex-1 text-sm font-medium text-slate-800">
-                    {index + 1}. {question.question_text}
+                    {index + 1}. <MathText text={question.question_text} />
                   </p>
                   {result && (
                     <Badge variant="outline" className={isCorrect ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}>
@@ -186,7 +187,8 @@ export default function TakeExamPage() {
                         onClick={() => selectAnswer(question.question_id, key)}
                         className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${className}`}
                       >
-                        <span className="font-semibold">{key}.</span> {value}
+                        <span className="font-semibold">{key}.</span>{" "}
+                        <MathText text={value} />
                       </button>
                     )
                   })}

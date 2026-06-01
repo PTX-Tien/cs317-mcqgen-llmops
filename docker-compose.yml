@@ -19,7 +19,7 @@ services:
     ports:
       - "7860:7860"
     environment:
-      - VLLM_URL=http://host.docker.internal:8000/v1
+      - VLLM_URL=http://host.docker.internal:7681/v1
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
     depends_on:
@@ -35,7 +35,7 @@ services:
     image: mcqgen-api:v1.0
     restart: unless-stopped
     environment:
-      - VLLM_URL=http://host.docker.internal:8000/v1
+      - VLLM_URL=http://host.docker.internal:7681/v1
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
     depends_on:
@@ -47,19 +47,6 @@ services:
       - ./input:/app/input
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-  ui:
-    image: mcqgen-api:v1.0
-    restart: unless-stopped
-    ports:
-      - "8501:8501"
-    depends_on:
-      - api
-    command: >
-      streamlit run streamlit_app.py
-      --server.port 8501
-      --server.address 0.0.0.0
-      --server.headless true
 
   phoenix:
     image: mcqgen-api:v1.0
