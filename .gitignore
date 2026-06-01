@@ -40,6 +40,7 @@ webapp/tsconfig.tsbuildinfo
 webapp/.env.local
 
 # Temp files
+.nfs*
 fix_*.py
 patch_*.py
 swap_*.py

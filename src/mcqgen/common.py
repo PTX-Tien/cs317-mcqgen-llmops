@@ -15,6 +15,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .math_format import MATH_FORMAT_INSTRUCTIONS
+
 # ==============================================================================
 # 1. EXPERIMENT CONFIG — ĐỔI TÊN EXP TRƯỚC KHI CHẠY
 # ==============================================================================
@@ -214,6 +216,8 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
 - `question_text` không được chứa các cụm: "đáp án đúng là", "vì đáp án", "giải thích", "nên chọn".
 - Phương án trả lời phải ngắn gọn như đáp án trong đề thi trắc nghiệm, không viết thành đoạn giải thích dài.
 - Mỗi phương án nên dưới 140 ký tự nếu có thể.
+
+{MATH_FORMAT_INSTRUCTIONS}
 
 [STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN]
 - **TUYỆT ĐỐI KHÔNG** được ghi đáp án đúng (hoặc một phần nội dung của đáp án đúng) vào trong question_text / stem.
@@ -451,6 +455,9 @@ KHÔNG được thay đổi tập đáp án đúng.
 - Không được paraphrase quá gần với correct answers.
 - Không lộ mẹo làm bài bằng grammar clue, absolute terms, hoặc độ dài quá khác biệt.
 - Tất cả distractors bằng tiếng Việt CÓ DẤU, phù hợp ngữ cảnh đề thi.
+- Nếu distractor có công thức hoặc ký hiệu toán học, tuân thủ định dạng LaTeX dưới đây.
+
+{MATH_FORMAT_INSTRUCTIONS}
 
 [YÊU CẦU MISCONCEPTION — BẮT BUỘC]
 Mỗi distractor PHẢI đánh trúng một lỗi hiểu sai (misconception) cụ thể của sinh viên.
@@ -685,6 +692,8 @@ Nhiệm vụ của bạn là lắp ráp câu hỏi hoàn chỉnh với 4 options
 - Phương án A/B/C/D phải ngắn gọn như phương án thi trắc nghiệm, không phải đoạn giải thích.
 - Không tạo field giải thích đáp án, rationale, `style_alignment_note` trong output cuối.
 
+{MATH_FORMAT_INSTRUCTIONS}
+
 [CONSTRAINTS]
 - Tổng số options = 4.
 - Gán nhãn A, B, C, D cho 4 options.
@@ -828,12 +837,35 @@ def parse_json_output(raw_text: str) -> dict[str, Any]:
     if "</think>" in text:
         text = text.split("</think>", 1)[1].strip()
 
+    def escape_invalid_json_backslashes(candidate: str) -> str:
+        # LLMs often emit LaTeX as "$\frac{...}$" inside JSON strings.  JSON
+        # only allows a small set of escapes, so repair backslashes that are
+        # not valid JSON escapes before giving up.
+        return re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", candidate)
+
+    def escape_latex_json_backslashes(candidate: str) -> str:
+        latex_commands = (
+            "frac|sqrt|sum|prod|hat|bar|le|ge|neq|approx|times|cdot|pm|"
+            "infty|nabla|alpha|beta|gamma|delta|lambda|mu|sigma|theta|pi|"
+            "Delta|rightarrow|leftarrow"
+        )
+        return re.sub(
+            rf"(?<!\\)\\(?=(?:{latex_commands})\b)",
+            r"\\\\",
+            candidate,
+        )
+
     def try_load(candidate: str) -> dict[str, Any] | None:
+        candidate = escape_latex_json_backslashes(candidate.strip())
         try:
-            parsed = json.loads(candidate.strip())
+            parsed = json.loads(candidate)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
-            return None
+            try:
+                parsed = json.loads(escape_invalid_json_backslashes(candidate))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
 
     candidates = [text]
     candidates.extend(

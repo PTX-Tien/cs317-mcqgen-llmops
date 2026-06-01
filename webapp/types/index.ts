@@ -75,7 +75,7 @@ export interface JobResponse {
 export type GenerationState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
+  | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; totalQ: number; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
   | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
   | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string }
   | { status: "failed"; error: string }
