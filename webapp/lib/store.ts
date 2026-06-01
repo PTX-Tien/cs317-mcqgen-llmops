@@ -6,7 +6,7 @@ interface AuthStore {
   token: string | null
   setAuth: (user: User, token: string) => void
   clearAuth: () => void
-  isTeacher: () => boolean
+  isAdmin: () => boolean
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -21,5 +21,5 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     localStorage.removeItem("refresh_token")
     set({ user: null, token: null })
   },
-  isTeacher: () => get().user?.role === "teacher",
+  isAdmin: () => get().user?.role === "admin",
 }))

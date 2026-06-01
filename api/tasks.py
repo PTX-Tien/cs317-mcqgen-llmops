@@ -13,15 +13,69 @@ load_dotenv()
 REDIS_URL = "redis://localhost:6379/0"
 celery_app = Celery("mcqgen", broker=REDIS_URL, backend=REDIS_URL)
 celery_app.conf.update(
+    # Serialization
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+
+    # Tracking & TTL
     task_track_started=True,
-    result_expires=3600,
+    result_expires=settings.TASK_RESULT_TTL,
+
+    # Task routing — user-facing tasks → high-priority queue
+    task_routes={
+        "api.tasks.run_mcq_pipeline": {"queue": settings.CELERY_QUEUE_HIGH},
+        "api.tasks.warmup_system":    {"queue": settings.CELERY_QUEUE_LOW},
+    },
+
+    # Time limits — tránh worker bị treo vô thời hạn
+    # soft limit: gửi SoftTimeLimitExceeded exception cho task
+    # hard limit: SIGKILL nếu task vẫn chạy sau đó
+    task_soft_time_limit=30 * 60,   # 30 phút — cảnh báo
+    task_time_limit=35 * 60,        # 35 phút — force kill
+
+    # Worker prefetch — mỗi worker chỉ nhận 1 task (tránh worker chậm giữ nhiều task)
+    worker_prefetch_multiplier=1,
+
+    # Acknowledge sau khi task chạy xong (không phải khi nhận) → tránh mất task khi worker crash
+    task_acks_late=True,
+
+    # Cho phép worker tự huỷ task trùng
+    task_reject_on_worker_lost=True,
 )
 
-@celery_app.task(bind=True)
-def run_mcq_pipeline(self, topics: list, output_name: str = "exam", retrieval_mode: str = "auto"):
+
+def _persist_success(task_id: str, result: dict):
+    try:
+        with Session(engine) as session:
+            persist_generation_success(session, task_id, result)
+    except Exception as exc:
+        print(f"[DB_PERSIST_ERROR] task_id={task_id} status=success error={exc!r}")
+
+
+def _persist_failure(task_id: str, error: Exception):
+    try:
+        with Session(engine) as session:
+            persist_generation_failure(session, task_id, str(error))
+    except Exception as exc:
+        print(f"[DB_PERSIST_ERROR] task_id={task_id} status=failed error={exc!r}")
+
+@celery_app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,       # 60s trước khi retry lần 1
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,           # exponential backoff: 60s, 120s
+    retry_backoff_max=300,        # tối đa 5 phút giữa các retry
+    retry_jitter=True,            # thêm jitter tránh thundering herd
+)
+def run_mcq_pipeline(
+    self,
+    topics: list,
+    output_name: str = "exam",
+    retrieval_mode: str = "auto",
+    trace_payload: dict | None = None,
+):
     """Celery task: chạy MCQ pipeline async, update progress."""
     total_questions = sum(int(t.get("n", 1)) for t in topics)
 
@@ -48,7 +102,53 @@ def run_mcq_pipeline(self, topics: list, output_name: str = "exam", retrieval_mo
             retrieval_mode=retrieval_mode,
         )
 
-    result = asyncio.run(_run())
+    try:
+        with langfuse_attributes(
+            user_id=trace_payload.get("user_id"),
+            session_id=task_id,
+            tags=["mcqgen", "celery", "generation"],
+            metadata=trace_metadata,
+        ):
+            with langfuse_observation(
+                "celery.run_mcq_pipeline",
+                as_type="span",
+                input={"topics": topics, "output_name": output_name},
+                metadata=trace_metadata,
+            ) as lf_span:
+                result = asyncio.run(_run())
+                if isinstance(result, dict):
+                    result.setdefault("output_name", output_name)
+                    result["display_name"] = format_exam_display_name(
+                        result.get("display_name") or trace_payload.get("exam_name") or output_name
+                    )
+                accepted = int(result.get("accepted", 0)) if isinstance(result, dict) else 0
+                failed = int(result.get("failed", 0)) if isinstance(result, dict) else 0
+                update_langfuse_observation(
+                    lf_span,
+                    output={
+                        "accepted": accepted,
+                        "failed": failed,
+                        "output_file": result.get("output_file") if isinstance(result, dict) else None,
+                    },
+                    metadata={**trace_metadata, "accepted": accepted, "failed": failed},
+                )
+                score_langfuse_trace("accepted_questions", float(accepted))
+                score_langfuse_trace("failed_questions", float(failed))
+                if isinstance(result, dict):
+                    _persist_success(task_id, result)
+                    # Cache task_id để dedup các request giống nhau trong tương lai
+                    if accepted > 0:
+                        try:
+                            from api.core.cache import set_cached_task_id
+                            set_cached_task_id(topics, retrieval_mode, task_id)
+                        except Exception as cache_exc:
+                            print(f"[CACHE_SET_WARN] {cache_exc!r}")
+    except Exception as exc:
+        score_langfuse_trace("job_failed", 1.0, comment=str(exc))
+        _persist_failure(task_id, exc)
+        raise
+    finally:
+        flush_langfuse()
 
     publish_progress(100, "done", current_question=total_questions)
     return result

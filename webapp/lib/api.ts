@@ -1,13 +1,37 @@
 import axios from "axios";
 
-function resolveApiUrl() {
-  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (configured) return configured;
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8080`;
+const normalizeUrl = (value?: string) => value?.trim().replace(/\/$/, "") || "";
+
+/**
+ * Auto-detect API base URL.
+ *
+ * HTTP (REST):
+ *   - Port 80/443  → /api prefix (Next.js rewrites → FastAPI:8080 nội bộ)
+ *   - Port khác    → direct :8080
+ *
+ * WebSocket:
+ *   - Luôn dùng port 8080 trực tiếp (Next.js rewrites không hỗ trợ WS)
+ */
+const browserBackendUrl = (kind: "http" | "ws") => {
+  if (typeof window === "undefined") return "";
+  const port = window.location.port;
+  const hostname = window.location.hostname;
+  const isStandardPort = !port || port === "80" || port === "443";
+  const httpProto = window.location.protocol.replace(":", "");
+  const wsProto   = window.location.protocol === "https:" ? "wss" : "ws";
+
+  if (kind === "ws") {
+    // WebSocket luôn đi thẳng đến FastAPI (rewrites không support WS)
+    return `${wsProto}://${hostname}:8080`;
   }
-  return "http://localhost:8080";
-}
+
+  if (isStandardPort) {
+    // HTTP qua Next.js proxy (/api rewrite → FastAPI:8080)
+    return `${httpProto}://${hostname}/api`;
+  }
+  // Dev mode: HTTP trực tiếp
+  return `${httpProto}://${hostname}:8080`;
+};
 
 function resolveWsUrl() {
   const configured = process.env.NEXT_PUBLIC_WS_URL?.trim();

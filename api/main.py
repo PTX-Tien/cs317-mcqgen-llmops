@@ -17,14 +17,15 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from api.tasks import celery_app, run_mcq_pipeline, warmup_system
 from api.core.config import settings
 from api.core.logger import setup_logging, log, CorrelationIDMiddleware
 from api.core.auth import (
-    get_users_db, pwd_context, create_token, get_current_user,
-    require_role, oauth2_scheme
+    pwd_context, create_token, decode_token, get_current_user,
+    require_role, oauth2_scheme,
+    register_user, UsernameAlreadyExistsError,
 )
 from api.core.database import (
     engine,
@@ -38,6 +39,21 @@ from api.core.database import (
     Exam,
     Question,
     QuizAttempt,
+    UserAccount,
+)
+from api.core.cache import (
+    get_cached_task_id,
+    set_cached_task_id,
+    cache_health,
+)
+from api.core.session import (
+    register_session,
+    blacklist_token,
+    invalidate_user_sessions,
+    append_user_context,
+    get_user_context,
+    clear_user_context,
+    session_health,
 )
 from api.pdf_exporter import export_exam_pdf
 from src.mcqgen.math_format import normalize_mcq_math, strip_answers_for_view
@@ -64,8 +80,14 @@ def get_user_key(request: Request) -> str:
         pass
     return get_remote_address(request)
 
-limiter = Limiter(key_func=get_user_key)
-app     = FastAPI(title="MCQGen API", version="2.0", docs_url="/docs")
+# Redis-backed storage đảm bảo rate limit được chia sẻ qua tất cả API instances
+# Fallback sang in-memory nếu Redis không khả dụng
+try:
+    limiter = Limiter(key_func=get_user_key, storage_uri=settings.REDIS_CACHE_URL)
+except Exception:
+    limiter = Limiter(key_func=get_user_key)
+
+app = FastAPI(title="MCQGen API", version="2.0", docs_url="/docs")
 
 # ── Middleware ────────────────────────────────────────────────────
 app.state.limiter = limiter
@@ -108,6 +130,11 @@ class LoginResponse(BaseModel):
 class PracticeSubmitRequest(BaseModel):
     answers: Dict[str, str]
     duration_seconds: int = 0
+
+class RegisterRequest(BaseModel):
+    username:   str
+    password:   str
+    full_name:  Optional[str] = ""
 
 GENERATION_MIN_PER_QUESTION_BY_MODE = {
     "fast": 7,
@@ -375,9 +402,27 @@ def _build_ranked_stats(stats: dict[str, dict]) -> list[dict]:
     return sorted(rows, key=lambda row: (row["wrong"], row["wrong_rate"]), reverse=True)
 
 # ── Auth endpoints ────────────────────────────────────────────────
+@app.post("/auth/register", status_code=201)
+def register(req: RegisterRequest):
+    """Đăng ký tài khoản user mới (public endpoint, không cần auth)."""
+    try:
+        user_info = register_user(
+            username=req.username,
+            password=req.password,
+            full_name=req.full_name or "",
+        )
+        log.info("register_success", username=user_info["username"])
+        return {"message": "Đăng ký thành công", "username": user_info["username"]}
+    except UsernameAlreadyExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @app.post("/auth/login", response_model=LoginResponse)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = get_users_db().get(form_data.username)
+    from api.core.auth import _get_user_from_db
+    user = _get_user_from_db(form_data.username)
     if not user or not pwd_context.verify(form_data.password, user["hashed_password"]):
         log.warning("login_failed", username=form_data.username)
         raise HTTPException(status_code=401, detail="Sai username hoặc password")
@@ -390,6 +435,15 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         {"sub": user["username"], "type": "refresh"},
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     )
+
+    # Đăng ký session để hỗ trợ logout & force-logout
+    try:
+        jti = decode_token(access_token).get("jti")
+        if jti:
+            register_session(user["username"], jti)
+    except Exception:
+        pass
+
     log.info("login_success", username=user["username"], role=user["role"])
     return LoginResponse(
         access_token=access_token,
@@ -403,10 +457,49 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 def get_me(user: dict = Depends(get_current_user)):
     return {"username": user["username"], "role": user["role"], "full_name": user["full_name"]}
 
+@app.post("/auth/logout")
+def logout(
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Logout: blacklist token hiện tại để nó không dùng được nữa dù chưa hết hạn."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            token = auth_header[7:]
+            payload = decode_token(token)
+            jti = payload.get("jti")
+            exp_ts = payload.get("exp")
+            if jti and exp_ts:
+                exp_dt = datetime.utcfromtimestamp(exp_ts)
+                blacklist_token(jti, exp_dt)
+        except Exception:
+            pass  # token invalid hoặc Redis lỗi → vẫn return 200
+    log.info("logout", username=user["username"])
+    return {"message": "Đăng xuất thành công"}
+
+@app.post("/auth/logout-all")
+def logout_all(user: dict = Depends(get_current_user)):
+    """Logout tất cả sessions của user (force logout on all devices)."""
+    count = invalidate_user_sessions(user["username"])
+    log.info("logout_all", username=user["username"], sessions_revoked=count)
+    return {"message": f"Đã đăng xuất {count} session", "sessions_revoked": count}
+
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.0", "service": "MCQGen API"}
+    cache_status  = cache_health()
+    session_status = session_health()
+    all_ok = cache_status["status"] == "ok" and session_status["status"] == "ok"
+    return {
+        "status":  "ok" if all_ok else "degraded",
+        "version": "2.0",
+        "service": "MCQGen API",
+        "components": {
+            "cache":   cache_status,
+            "session": session_status,
+        },
+    }
 
 @app.get("/queue/status")
 def queue_status(user: dict = Depends(get_current_user)):
@@ -427,7 +520,7 @@ def queue_status(user: dict = Depends(get_current_user)):
     }
 
 @app.post("/admin/warmup")
-def admin_warmup(user: dict = Depends(require_role("teacher"))):
+def admin_warmup(user: dict = Depends(require_role("admin"))):
     task = warmup_system.delay()
     log.info("warmup_submitted", task_id=task.id, user=user["username"])
     return {
@@ -438,11 +531,11 @@ def admin_warmup(user: dict = Depends(require_role("teacher"))):
 
 # ── Generation ────────────────────────────────────────────────────
 @app.post("/generate")
-@limiter.limit(settings.RATE_LIMIT_TEACHER)
+@limiter.limit(settings.RATE_LIMIT_USER)
 def generate(
     request: Request,
     req: GenerateRequest,
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     topics = [t.model_dump() for t in req.topics]
@@ -467,6 +560,30 @@ def generate(
             status_code=409,
             detail=f'Tên đề thi "{display_name}" đã tồn tại trong lịch sử. Vui lòng chọn tên khác hoặc xoá đề cũ trước.',
         )
+
+    # ── Cache dedup: kiểm tra xem config này đã được generate thành công chưa ──
+    cached_task_id = get_cached_task_id(topics, retrieval_mode)
+    if cached_task_id:
+        cached_exam = session.exec(select(Exam).where(Exam.task_id == cached_task_id)).first()
+        if cached_exam and cached_exam.status == "success":
+            log.info(
+                "generation_cache_hit",
+                cached_task_id=cached_task_id,
+                user=user["username"],
+                n_questions=n_q,
+            )
+            summary = exam_summary(cached_exam)
+            return {
+                "task_id":              cached_task_id,
+                "status":               "success",
+                "source":               "cache",
+                "display_name":         summary["exam_name"],
+                "accepted":             cached_exam.accepted_questions or cached_exam.n_questions,
+                "failed":               cached_exam.failed_questions,
+                "n_questions":          cached_exam.n_questions,
+                "retrieval_mode":       retrieval_mode,
+                "message":              "Kết quả được lấy từ cache (cùng cấu hình đã generate trước đó)",
+            }
 
     task_id = str(uuid.uuid4())
     trace_payload = {
@@ -538,6 +655,16 @@ def generate(
             )
             session.add(exam)
             session.commit()
+
+    # Lưu context: user vừa tạo một đề thi (dùng cho future multi-turn interactions)
+    try:
+        append_user_context(
+            user["username"],
+            "user",
+            f"Tạo đề thi '{display_name}' với {n_q} câu, mode={retrieval_mode}",
+        )
+    except Exception:
+        pass
 
     log.info("job_submitted",
         task_id=task.id,
@@ -856,7 +983,7 @@ def cancel_job(
 # ── History ───────────────────────────────────────────────────────
 @app.get("/history")
 def get_history(
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     exams = session.exec(
@@ -875,14 +1002,14 @@ def get_history(
 @app.delete("/history/{task_id}")
 def delete_history_item(
     task_id: str,
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    exam = session.exec(
-        select(Exam)
-        .where(Exam.task_id == task_id)
-        .where(Exam.created_by == user["username"])
-    ).first()
+    # User chỉ xoá được exam của chính mình; admin xoá được của bất kỳ ai
+    query = select(Exam).where(Exam.task_id == task_id)
+    if user["role"] != "admin":
+        query = query.where(Exam.created_by == user["username"])
+    exam = session.exec(query).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
@@ -1006,3 +1133,271 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         log.info("websocket_disconnected", task_id=task_id)
+
+
+# ── Session context ───────────────────────────────────────────────
+@app.get("/session/context")
+def get_my_context(user: dict = Depends(get_current_user)):
+    """Lấy lịch sử interaction context của user hiện tại."""
+    context = get_user_context(user["username"])
+    return {"username": user["username"], "context": context, "count": len(context)}
+
+
+@app.delete("/session/context")
+def clear_my_context(user: dict = Depends(get_current_user)):
+    """Xoá toàn bộ conversation context của user."""
+    clear_user_context(user["username"])
+    log.info("context_cleared", username=user["username"])
+    return {"message": "Context đã được xoá"}
+
+
+# ── Admin: User Management ────────────────────────────────────────
+def _user_stats(session: Session, username: str) -> dict:
+    """Tổng hợp thống kê sử dụng của một user."""
+    exam_count = session.exec(
+        select(func.count(Exam.id)).where(Exam.created_by == username)
+    ).one() or 0
+
+    success_exams = session.exec(
+        select(func.count(Exam.id))
+        .where(Exam.created_by == username)
+        .where(Exam.status == "success")
+    ).one() or 0
+
+    attempt_count = session.exec(
+        select(func.count(QuizAttempt.id)).where(QuizAttempt.student_id == username)
+    ).one() or 0
+
+    avg_score_row = session.exec(
+        select(func.avg(QuizAttempt.score)).where(QuizAttempt.student_id == username)
+    ).one()
+    avg_score = round(float(avg_score_row), 2) if avg_score_row else None
+
+    last_exam = session.exec(
+        select(Exam.created_at)
+        .where(Exam.created_by == username)
+        .order_by(Exam.created_at.desc())
+        .limit(1)
+    ).first()
+
+    last_attempt = session.exec(
+        select(QuizAttempt.submitted_at)
+        .where(QuizAttempt.student_id == username)
+        .order_by(QuizAttempt.submitted_at.desc())
+        .limit(1)
+    ).first()
+
+    last_active = None
+    candidates = [ts for ts in [last_exam, last_attempt] if ts is not None]
+    if candidates:
+        last_active = max(candidates).isoformat()
+
+    return {
+        "exam_count":    exam_count,
+        "success_exams": success_exams,
+        "attempt_count": attempt_count,
+        "avg_score":     avg_score,
+        "last_active":   last_active,
+    }
+
+
+@app.get("/admin/users")
+def admin_list_users(
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Danh sách tất cả users với thống kê sử dụng."""
+    users = session.exec(
+        select(UserAccount).order_by(UserAccount.created_at.desc())
+    ).all()
+    result = []
+    for u in users:
+        stats = _user_stats(session, u.username)
+        result.append({
+            "username":    u.username,
+            "full_name":   u.full_name,
+            "role":        u.role,
+            "created_at":  u.created_at.isoformat() if u.created_at else None,
+            "is_active":   u.is_active,
+            **stats,
+        })
+    return {"users": result, "total": len(result)}
+
+
+@app.patch("/admin/users/{username}/status")
+def admin_toggle_user_status(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Kích hoạt / vô hiệu hoá tài khoản user."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    if user.role == "admin":
+        raise HTTPException(status_code=403, detail="Không thể vô hiệu hoá tài khoản admin")
+    user.is_active = not user.is_active
+    session.add(user)
+    session.commit()
+    action = "activated" if user.is_active else "deactivated"
+    log.info(f"admin_user_{action}", target=username, by=admin["username"])
+    return {
+        "username":  user.username,
+        "is_active": user.is_active,
+        "message":   f"Tài khoản đã {'kích hoạt' if user.is_active else 'vô hiệu hoá'}",
+    }
+
+
+@app.delete("/admin/users/{username}")
+def admin_delete_user(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Xoá user và toàn bộ data của họ (exams, attempts)."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    if user.role == "admin":
+        raise HTTPException(status_code=403, detail="Không thể xoá tài khoản admin")
+
+    # Xoá quiz attempts
+    for attempt in session.exec(select(QuizAttempt).where(QuizAttempt.student_id == username)).all():
+        session.delete(attempt)
+
+    # Xoá questions + exams của user
+    exams = session.exec(select(Exam).where(Exam.created_by == username)).all()
+    for exam in exams:
+        for q in session.exec(select(Question).where(Question.exam_id == exam.id)).all():
+            session.delete(q)
+        session.delete(exam)
+
+    session.delete(user)
+    session.commit()
+
+    # Invalidate sessions của user
+    try:
+        invalidate_user_sessions(username)
+    except Exception:
+        pass
+
+    log.info("admin_user_deleted", target=username, by=admin["username"])
+    return {"username": username, "deleted": True}
+
+
+@app.get("/admin/global-stats")
+def admin_global_stats(
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Thống kê tổng thể toàn hệ thống cho admin dashboard."""
+    total_users      = session.exec(select(func.count(UserAccount.username))).one() or 0
+    active_users     = session.exec(select(func.count(UserAccount.username)).where(UserAccount.is_active == True)).one() or 0
+    total_exams      = session.exec(select(func.count(Exam.id))).one() or 0
+    success_exams    = session.exec(select(func.count(Exam.id)).where(Exam.status == "success")).one() or 0
+    total_questions  = session.exec(select(func.count(Question.id))).one() or 0
+    total_attempts   = session.exec(select(func.count(QuizAttempt.id))).one() or 0
+    avg_quality_row  = session.exec(select(func.avg(Exam.quality_avg)).where(Exam.status == "success")).one()
+    avg_quality      = round(float(avg_quality_row), 3) if avg_quality_row else 0.0
+    queue            = get_queue_snapshot()
+
+    return {
+        "total_users":     total_users,
+        "active_users":    active_users,
+        "total_exams":     total_exams,
+        "success_exams":   success_exams,
+        "total_questions": total_questions,
+        "total_attempts":  total_attempts,
+        "avg_quality":     avg_quality,
+        "queue":           queue,
+    }
+
+
+@app.get("/admin/users/{username}")
+def admin_get_user_detail(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Chi tiết một user: thông tin tài khoản + lịch sử đề thi + các lần làm bài."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+
+    stats = _user_stats(session, username)
+
+    # 10 đề thi gần nhất của user
+    recent_exams = session.exec(
+        select(Exam)
+        .where(Exam.created_by == username)
+        .order_by(Exam.created_at.desc())
+        .limit(10)
+    ).all()
+
+    # 10 lần làm bài gần nhất
+    recent_attempts = session.exec(
+        select(QuizAttempt)
+        .where(QuizAttempt.student_id == username)
+        .order_by(QuizAttempt.submitted_at.desc())
+        .limit(10)
+    ).all()
+
+    return {
+        "username":   user.username,
+        "full_name":  user.full_name,
+        "role":       user.role,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_active":  user.is_active,
+        **stats,
+        "recent_exams": [
+            {
+                "task_id":    e.task_id,
+                "exam_name":  format_exam_display_name(e.exam_name),
+                "status":     e.status,
+                "n_questions": e.n_questions,
+                "quality_avg": e.quality_avg,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in recent_exams
+        ],
+        "recent_attempts": [
+            {
+                "id":          a.id,
+                "exam_id":     a.exam_id,
+                "score":       a.score,
+                "n_correct":   a.n_correct,
+                "n_total":     a.n_total,
+                "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+            }
+            for a in recent_attempts
+        ],
+    }
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@app.post("/admin/users/{username}/reset-password")
+def admin_reset_password(
+    username: str,
+    req: ResetPasswordRequest,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Admin đặt lại mật khẩu cho user."""
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Mật khẩu phải có ít nhất 6 ký tự")
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    user.hashed_password = pwd_context.hash(req.new_password)
+    session.add(user)
+    session.commit()
+    # Invalidate tất cả session cũ của user
+    try:
+        invalidate_user_sessions(username)
+    except Exception:
+        pass
+    log.info("admin_password_reset", target=username, by=admin["username"])
+    return {"message": f"Đã đặt lại mật khẩu cho {username}"}
