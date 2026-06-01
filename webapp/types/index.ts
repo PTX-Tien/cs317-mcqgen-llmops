@@ -35,6 +35,17 @@ export interface Evaluation {
   fail_reasons: string[]
 }
 
+export interface GenerationFailure {
+  question_id?: string
+  topic_id?: string
+  topic?: string
+  chapter_id?: string
+  difficulty?: string
+  stage?: string
+  reason?: string
+  details?: unknown
+}
+
 export interface MCQ {
   question_id: string
   question_text: string
@@ -47,9 +58,67 @@ export interface MCQ {
   style_alignment_note?: string
 }
 
+export interface PracticeQuestion {
+  question_id: string
+  question_text: string
+  question_type: string
+  options: MCQOption
+  topic: string
+  difficulty_label: string
+  chapter_id?: string
+  chapter_label?: string
+}
+
+export interface PracticeDetail extends PracticeQuestion {
+  selected: string
+  correct_answers: string[]
+  is_correct: boolean
+  correct_rationale?: string
+  position?: number
+}
+
+export interface PracticeAttempt {
+  id: string
+  exam_id: string
+  exam_name: string
+  task_id?: string | null
+  student_id: string
+  score: number
+  n_correct: number
+  n_total: number
+  duration_seconds: number
+  submitted_at: string
+  answers: Record<string, string>
+  details: PracticeDetail[]
+}
+
+export interface StudySummaryStat {
+  key: string
+  label: string
+  wrong: number
+  total: number
+  wrong_rate: number
+}
+
+export interface StudySummary {
+  total_attempts: number
+  total_questions: number
+  total_correct: number
+  total_wrong: number
+  average_score: number
+  accuracy_rate: number
+  wrong_rate: number
+  top_wrong_chapters: StudySummaryStat[]
+  top_wrong_topics: StudySummaryStat[]
+  top_wrong_difficulties: StudySummaryStat[]
+  recommendations: string[]
+  recent_attempts: PracticeAttempt[]
+}
+
 export interface GenerateRequest {
   topics: TopicConfig[]
   output_name: string
+  display_name?: string
   retrieval_mode: RetrievalMode
 }
 
@@ -77,5 +146,5 @@ export type GenerationState =
   | { status: "submitting" }
   | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
   | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
-  | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string }
+  | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string; failed?: number; failures?: GenerationFailure[] }
   | { status: "failed"; error: string }
