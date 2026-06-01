@@ -187,4 +187,3 @@ def flush_langfuse() -> None:
         client.flush()
     except Exception as exc:  # pragma: no cover - optional dependency path
         print(f"LangFuse flush skipped: {exc}", file=sys.stderr)
-

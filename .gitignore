@@ -1,93 +1,55 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-coverage.xml
-htmlcov/
 
-# Frontend dependencies and build output
-node_modules/
-.next/
-out/
-build/
-coverage/
-webapp/node_modules/
-webapp/.next/
-webapp/out/
-webapp/build/
-webapp/coverage/
-webapp/tsconfig.tsbuildinfo
-
-# Environment files and local secrets
-.env
-.env.*
-**/.env
-**/.env.*
-*.env
-*.env.*
-.envrc
-**/.envrc
-!.env.example
-!**/.env.example
-!.env.sample
-!**/.env.sample
-!.env.template
-!**/.env.template
-
-# Logs and runtime output
+# Logs
 *.log
 logs/
-vllm/logs/
-vllm_server.log
-vllm_demo_webapp/server.log
 
-# Local databases
-*.db
-*.sqlite
-*.sqlite3
-data/*.db
-
-# Generated data, model weights, and DVC/cache runtime files
-.dvc/tmp/
+# Data lớn — track bằng DVC thay vì git
 data/indexes/
 data/processed/
-data/benchmarks/
 data/cleaned_transcript/
 data/concept_chunks.jsonl
-data/quiz_history/
 models/
 input/slide/
 input/video_transcript/
 
-# Redis and temporary working directories
+# Redis
 redis_data/
 tmp/
 
-# Experiment and service artifacts
+# Output experiments
 output/
-results/
+vllm/logs/
 vllm/results/
-monitoring/langfuse/.env
-monitoring/langfuse/data/
-monitoring/langfuse/postgres/
-monitoring/langfuse/clickhouse/
-monitoring/langfuse/minio/
-monitoring/langfuse/redis/
+vllm_demo_webapp/server.log
 
-# Local scratch files
+# Local runtime DB
+data/*.db
+
+# Frontend build/dependencies
+webapp/.next/
+webapp/node_modules/
+webapp/tsconfig.tsbuildinfo
+webapp/.env.local
+
+# Temp files
+.nfs*
 fix_*.py
 patch_*.py
 swap_*.py
 test_output.json
 *.tmp
-.nfs*
-scripts/.nfs*
 
-# Local Codex/operator notes
-.codex/
-AGENTS.md
-plan_for_tracing_vi.md
+# vLLM
+vllm_server.log
+.env
+
+results
+dev

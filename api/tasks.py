@@ -7,25 +7,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from celery import Celery
 from dotenv import load_dotenv
-from sqlmodel import Session
-from api.core.config import settings
-from api.core.database import (
-    engine,
-    format_exam_display_name,
-    persist_generation_failure,
-    persist_generation_success,
-)
-from monitoring.langfuse_tracing import (
-    flush_langfuse,
-    langfuse_attributes,
-    langfuse_observation,
-    score_langfuse_trace,
-    update_langfuse_observation,
-)
 
 load_dotenv()
 
-celery_app = Celery("mcqgen", broker=settings.CELERY_BROKER, backend=settings.CELERY_BACKEND)
+REDIS_URL = "redis://localhost:6379/0"
+celery_app = Celery("mcqgen", broker=REDIS_URL, backend=REDIS_URL)
 celery_app.conf.update(
     # Serialization
     task_serializer="json",
@@ -91,17 +77,7 @@ def run_mcq_pipeline(
     trace_payload: dict | None = None,
 ):
     """Celery task: chạy MCQ pipeline async, update progress."""
-    trace_payload = trace_payload or {}
-    task_id = trace_payload.get("task_id") or self.request.id
     total_questions = sum(int(t.get("n", 1)) for t in topics)
-    trace_metadata = {
-        **trace_payload,
-        "task_id": task_id,
-        "output_name": output_name,
-        "retrieval_mode": retrieval_mode,
-        "n_questions": total_questions,
-        "topic_count": len(topics),
-    }
 
     def publish_progress(progress: int, step: str, **meta):
         payload = {
@@ -124,7 +100,6 @@ def run_mcq_pipeline(
             output_name=output_name,
             progress_callback=publish_progress,
             retrieval_mode=retrieval_mode,
-            trace_payload=trace_metadata,
         )
 
     try:

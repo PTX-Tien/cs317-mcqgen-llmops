@@ -35,24 +35,16 @@ export interface Evaluation {
   fail_reasons: string[]
 }
 
-export interface GenerationFailure {
-  question_id?: string
-  topic_id?: string
-  topic?: string
-  chapter_id?: string
-  difficulty?: string
-  stage?: string
-  reason?: string
-  details?: unknown
-}
-
 export interface MCQ {
   question_id: string
   question_text: string
   question_type: string
   options: MCQOption
   correct_answers: string[]
+  correct_rationale?: string
   topic: string
+  chapter_id?: string
+  chapter_label?: string
   difficulty_label: string
   evaluation: Evaluation
   style_alignment_note?: string
@@ -65,23 +57,42 @@ export interface PracticeQuestion {
   options: MCQOption
   topic: string
   difficulty_label: string
-  chapter_id?: string
-  chapter_label?: string
+  chapter_id: string
+  chapter_label: string
 }
 
 export interface PracticeDetail extends PracticeQuestion {
+  position: number
   selected: string
   correct_answers: string[]
   is_correct: boolean
-  correct_rationale?: string
-  position?: number
+  correct_rationale: string
 }
 
-export interface PracticeAttempt {
+export interface GenerationFailure {
+  question_id?: string
+  topic_id?: string
+  topic?: string
+  chapter_id?: string
+  difficulty?: string
+  stage?: string
+  reason?: string
+  details?: unknown
+}
+
+export interface StudyRankedStat {
+  key: string
+  label: string
+  wrong: number
+  total: number
+  wrong_rate: number
+}
+
+export interface StudyAttemptSummary {
   id: string
   exam_id: string
   exam_name: string
-  task_id?: string | null
+  task_id: string | null
   student_id: string
   score: number
   n_correct: number
@@ -92,14 +103,6 @@ export interface PracticeAttempt {
   details: PracticeDetail[]
 }
 
-export interface StudySummaryStat {
-  key: string
-  label: string
-  wrong: number
-  total: number
-  wrong_rate: number
-}
-
 export interface StudySummary {
   total_attempts: number
   total_questions: number
@@ -108,17 +111,16 @@ export interface StudySummary {
   average_score: number
   accuracy_rate: number
   wrong_rate: number
-  top_wrong_chapters: StudySummaryStat[]
-  top_wrong_topics: StudySummaryStat[]
-  top_wrong_difficulties: StudySummaryStat[]
+  top_wrong_chapters: StudyRankedStat[]
+  top_wrong_topics: StudyRankedStat[]
+  top_wrong_difficulties: StudyRankedStat[]
   recommendations: string[]
-  recent_attempts: PracticeAttempt[]
+  recent_attempts: StudyAttemptSummary[]
 }
 
 export interface GenerateRequest {
   topics: TopicConfig[]
   output_name: string
-  display_name?: string
   retrieval_mode: RetrievalMode
 }
 

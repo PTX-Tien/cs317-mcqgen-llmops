@@ -33,13 +33,18 @@ const browserBackendUrl = (kind: "http" | "ws") => {
   return `${httpProto}://${hostname}:8080`;
 };
 
-const API_URL =
-  normalizeUrl(process.env.NEXT_PUBLIC_API_URL) ||
-  browserBackendUrl("http") ||
-  "http://127.0.0.1:8080";
+function resolveWsUrl() {
+  const configured = process.env.NEXT_PUBLIC_WS_URL?.trim();
+  if (configured) return configured;
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.hostname}:8080`;
+  }
+  return "ws://localhost:8080";
+}
 
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: resolveApiUrl(),
   timeout: 30000,
 });
 
@@ -65,7 +70,4 @@ api.interceptors.response.use(
   },
 );
 
-export const WS_URL =
-  normalizeUrl(process.env.NEXT_PUBLIC_WS_URL) ||
-  browserBackendUrl("ws") ||
-  "ws://127.0.0.1:8080";
+export const WS_URL = resolveWsUrl()
