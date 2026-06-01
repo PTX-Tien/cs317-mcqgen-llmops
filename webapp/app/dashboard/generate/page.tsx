@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
+import { MathText } from "@/components/math-text";
 import {
   Select,
   SelectContent,
@@ -773,6 +772,7 @@ export default function GeneratePage() {
           estimatedRuntime: active.estimatedRuntime || 0,
           jobsAhead: active.jobsAhead || 0,
           taskId: active.taskId,
+          totalQ: active.totalQ,
           questionConcurrency: active.questionConcurrency,
           llmConcurrency: active.llmConcurrency,
           vllmMaxNumSeqs: active.vllmMaxNumSeqs,
@@ -861,6 +861,7 @@ export default function GeneratePage() {
         estimatedRuntime: data.estimated_runtime_min ?? 0,
         jobsAhead: data.jobs_ahead ?? Math.max(0, data.queue_position - 1),
         taskId: data.task_id,
+        totalQ: topicsToSubmit.reduce((sum, topic) => sum + topic.n, 0),
         questionConcurrency: data.generation_concurrency,
         llmConcurrency: data.llm_concurrency,
         vllmMaxNumSeqs: data.vllm_max_num_seqs,
@@ -1124,8 +1125,6 @@ export default function GeneratePage() {
                           {PIPELINE_STEPS.map((step, i) => {
                             const done = i < cur;
                             const active = i === cur;
-                            const upcoming = i > cur;
-
                             return (
                               <div
                                 key={i}
@@ -1335,7 +1334,7 @@ export default function GeneratePage() {
                           Câu {i + 1}
                         </span>
                         <p className="flex-1 text-sm font-medium text-slate-800 leading-relaxed pt-0.5">
-                          {mcq.question_text}
+                          <MathText text={mcq.question_text} />
                         </p>
                         <div className="flex items-center gap-2 shrink-0 pt-0.5">
                           <button className="text-slate-300 hover:text-slate-500 transition-colors">
@@ -1376,7 +1375,7 @@ export default function GeneratePage() {
                               {k}
                             </span>
                             <span className="text-sm text-slate-700 leading-relaxed pt-0.5">
-                              {v}
+                              <MathText text={v} />
                             </span>
                           </div>
                         ))}

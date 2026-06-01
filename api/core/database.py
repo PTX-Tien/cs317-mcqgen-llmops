@@ -2,6 +2,7 @@ from sqlmodel import SQLModel, Field, Session, create_engine, select
 from datetime import datetime
 from typing import Optional
 from api.core.config import settings
+from src.mcqgen.math_format import normalize_mcq_math
 import uuid, json, re
 
 engine = create_engine(settings.DATABASE_URL, echo=False)
@@ -140,6 +141,7 @@ def init_db():
 
 
 def question_from_mcq(exam_id: str, mcq: dict, position: int = 0) -> Question:
+    mcq = normalize_mcq_math(dict(mcq))
     evaluation = mcq.get("evaluation", {}) if isinstance(mcq, dict) else {}
     return Question(
         exam_id=exam_id,
@@ -195,7 +197,7 @@ def question_to_mcq(question: Question) -> dict:
     mcq.setdefault("evaluation", _json_loads(question.evaluation_json, {}))
     mcq.setdefault("rag_strategy", question.rag_strategy)
     mcq.setdefault("chapter_id", question.chapter_id)
-    return mcq
+    return normalize_mcq_math(mcq)
 
 
 def get_exam_mcqs(session: Session, exam: Exam) -> list[dict]:

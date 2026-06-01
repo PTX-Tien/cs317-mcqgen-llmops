@@ -40,6 +40,7 @@ from api.core.database import (
     QuizAttempt,
 )
 from api.pdf_exporter import export_exam_pdf
+from src.mcqgen.math_format import normalize_mcq_math, strip_answers_for_view
 from monitoring.langfuse_tracing import (
     flush_langfuse,
     langfuse_attributes,
@@ -190,7 +191,34 @@ def _sync_exam_from_celery(session: Session, exam: Exam) -> Exam:
     return exam
 
 
-def _db_result_payload(session: Session, exam: Exam) -> dict:
+def _user_has_attempt(session: Session, exam: Exam, username: str) -> bool:
+    return bool(
+        session.exec(
+            select(QuizAttempt)
+            .where(QuizAttempt.exam_id == exam.id)
+            .where(QuizAttempt.student_id == username)
+        ).first()
+    )
+
+
+def _ensure_answer_access(session: Session, exam: Exam | None, username: str):
+    if not exam:
+        raise HTTPException(status_code=403, detail="Cần lưu đề trước khi xem đáp án")
+    if not _user_has_attempt(session, exam, username):
+        raise HTTPException(
+            status_code=403,
+            detail="Bạn cần nộp bài trước khi xem hoặc tải đáp án.",
+        )
+
+
+def _mcqs_for_view(mcqs: list[dict], include_answers: bool) -> list[dict]:
+    normalized = [normalize_mcq_math(dict(mcq)) for mcq in mcqs if isinstance(mcq, dict)]
+    if include_answers:
+        return normalized
+    return [strip_answers_for_view(mcq) for mcq in normalized]
+
+
+def _db_result_payload(session: Session, exam: Exam, include_answers: bool = False) -> dict:
     mcqs = get_exam_mcqs(session, exam)
     summary = exam_summary(exam)
     return {
@@ -199,7 +227,8 @@ def _db_result_payload(session: Session, exam: Exam) -> dict:
         "accepted": exam.accepted_questions or len(mcqs),
         "failed": exam.failed_questions,
         "failures": summary["failures"],
-        "mcqs": mcqs,
+        "mcqs": _mcqs_for_view(mcqs, include_answers),
+        "include_answers": include_answers,
         "question_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
@@ -606,6 +635,7 @@ def get_status(
 @app.get("/results/{task_id}")
 def get_results(
     task_id: str,
+    include_answers: bool = False,
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -616,7 +646,9 @@ def get_results(
         if isinstance(data, dict) and data.get("type") == "warmup":
             raise HTTPException(400, "Warmup task has no exam results")
         if exam and exam.status != "success" and isinstance(data, dict):
-            persist_generation_success(session, task_id, data)
+            exam = persist_generation_success(session, task_id, data) or exam
+        if include_answers:
+            _ensure_answer_access(session, exam, user["username"])
         mcqs = data.get("mcqs", []) if isinstance(data, dict) else []
         return {
             "task_id": task_id,
@@ -624,7 +656,8 @@ def get_results(
             "accepted": data.get("accepted", len(mcqs)) if isinstance(data, dict) else len(mcqs),
             "failed": data.get("failed", 0) if isinstance(data, dict) else 0,
             "failures": data.get("failures", []) if isinstance(data, dict) else [],
-            "mcqs": mcqs,
+            "mcqs": _mcqs_for_view(mcqs, include_answers),
+            "include_answers": include_answers,
             "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS) if isinstance(data, dict) else settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
             "llm_concurrency": data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY) if isinstance(data, dict) else settings.MCQGEN_LLM_MAX_CONCURRENCY,
             "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
@@ -632,7 +665,9 @@ def get_results(
         }
 
     if exam and exam.status == "success":
-        return _db_result_payload(session, exam)
+        if include_answers:
+            _ensure_answer_access(session, exam, user["username"])
+        return _db_result_payload(session, exam, include_answers=include_answers)
     if exam and exam.status in {"failed", "cancelled"}:
         raise HTTPException(400, exam.error_message or f"Job {exam.status}")
     raise HTTPException(400, f"Job not done: {result.state}")
@@ -829,7 +864,12 @@ def get_history(
         .order_by(Exam.created_at.desc()).limit(20)
     ).all()
     synced = [_sync_exam_from_celery(session, exam) for exam in exams]
-    return {"exams": [exam_summary(exam) for exam in synced]}
+    rows = []
+    for exam in synced:
+        summary = exam_summary(exam)
+        summary["has_attempt"] = _user_has_attempt(session, exam, user["username"])
+        rows.append(summary)
+    return {"exams": rows}
 
 
 @app.delete("/history/{task_id}")
@@ -893,21 +933,10 @@ def export_pdf(
         raise HTTPException(404, "No MCQs found")
 
     if include_answers:
-        if not exam:
-            raise HTTPException(status_code=403, detail="Cần lưu đề trước khi tải đáp án")
-        attempt = session.exec(
-            select(QuizAttempt)
-            .where(QuizAttempt.exam_id == exam.id)
-            .where(QuizAttempt.student_id == user["username"])
-        ).first()
-        if not attempt:
-            raise HTTPException(
-                status_code=403,
-                detail="Bạn cần nộp bài trước khi xem hoặc tải đáp án.",
-            )
+        _ensure_answer_access(session, exam, user["username"])
 
     pdf_bytes = export_exam_pdf(
-        mcqs,
+        _mcqs_for_view(mcqs, include_answers=include_answers),
         exam_name=exam_name.upper(),
         include_answer_key=include_answers,
     )
