@@ -23,14 +23,25 @@ class Settings:
     VLLM_MODEL: str = os.getenv("VLLM_MODEL", "mcqgen")
     VLLM_MAX_NUM_SEQS: int = _env_int("VLLM_MAX_NUM_SEQS", 4)
 
-    # Redis
-    CELERY_BROKER:  str = os.getenv("CELERY_BROKER", "redis://localhost:6379/0")
-    CELERY_BACKEND: str = os.getenv("CELERY_BACKEND", "redis://localhost:6379/0")
+    # Redis — broker/backend dùng DB 0/1, cache DB 2, session DB 3
+    REDIS_BASE_URL: str = os.getenv("REDIS_BASE_URL", "redis://localhost:6379")
+    CELERY_BROKER:  str = os.getenv("CELERY_BROKER",  "redis://localhost:6379/0")
+    CELERY_BACKEND: str = os.getenv("CELERY_BACKEND", "redis://localhost:6379/1")
+    REDIS_CACHE_URL:   str = os.getenv("REDIS_CACHE_URL",   "redis://localhost:6379/2")
+    REDIS_SESSION_URL: str = os.getenv("REDIS_SESSION_URL", "redis://localhost:6379/3")
     TASK_RESULT_TTL: int = int(os.getenv("TASK_RESULT_TTL_SECONDS", "86400"))
 
+    # Admin account (auto-created on first startup)
+    ADMIN_USERNAME:   str = os.getenv("ADMIN_USERNAME",   "admin")
+    ADMIN_PASSWORD:   str = os.getenv("ADMIN_PASSWORD",   "admin2026")
+    ADMIN_FULL_NAME:  str = os.getenv("ADMIN_FULL_NAME",  "Administrator")
+
     # Rate limit
-    RATE_LIMIT_TEACHER: str = os.getenv("RATE_LIMIT_TEACHER", "10/hour")
-    RATE_LIMIT_STUDENT: str = os.getenv("RATE_LIMIT_STUDENT", "30/hour")
+    RATE_LIMIT_ADMIN: str = os.getenv("RATE_LIMIT_ADMIN", os.getenv("RATE_LIMIT_TEACHER", "50/hour"))
+    RATE_LIMIT_USER:  str = os.getenv("RATE_LIMIT_USER",  os.getenv("RATE_LIMIT_STUDENT", "20/hour"))
+    # Backward-compat aliases
+    RATE_LIMIT_TEACHER: str = os.getenv("RATE_LIMIT_TEACHER", "50/hour")
+    RATE_LIMIT_STUDENT: str = os.getenv("RATE_LIMIT_STUDENT", "20/hour")
 
     # Pipeline concurrency
     MCQGEN_MAX_CONCURRENT_QUESTIONS: int = _env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 4)
@@ -38,5 +49,16 @@ class Settings:
         "MCQGEN_LLM_MAX_CONCURRENCY",
         MCQGEN_MAX_CONCURRENT_QUESTIONS,
     )
+
+    # Celery queues
+    CELERY_QUEUE_HIGH: str = os.getenv("CELERY_QUEUE_HIGH", "mcq.high")
+    CELERY_QUEUE_LOW:  str = os.getenv("CELERY_QUEUE_LOW",  "mcq.low")
+
+    # Cache TTLs (seconds)
+    CACHE_TTL_GENERATION: int = _env_int("CACHE_TTL_GENERATION", 7 * 86400)   # 7 ngày
+    CACHE_TTL_DB_QUERY:   int = _env_int("CACHE_TTL_DB_QUERY",   300)          # 5 phút
+
+    # Session TTLs (seconds)
+    SESSION_CONTEXT_TTL: int = _env_int("SESSION_CONTEXT_TTL", 7 * 86400)     # 7 ngày
 
 settings = Settings()

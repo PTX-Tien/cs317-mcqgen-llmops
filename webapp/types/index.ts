@@ -1,6 +1,6 @@
 export interface User {
   username: string
-  role: "teacher" | "student"
+  role: "admin" | "user"
   full_name: string
 }
 

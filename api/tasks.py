@@ -27,11 +27,35 @@ load_dotenv()
 
 celery_app = Celery("mcqgen", broker=settings.CELERY_BROKER, backend=settings.CELERY_BACKEND)
 celery_app.conf.update(
+    # Serialization
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+
+    # Tracking & TTL
     task_track_started=True,
     result_expires=settings.TASK_RESULT_TTL,
+
+    # Task routing — user-facing tasks → high-priority queue
+    task_routes={
+        "api.tasks.run_mcq_pipeline": {"queue": settings.CELERY_QUEUE_HIGH},
+        "api.tasks.warmup_system":    {"queue": settings.CELERY_QUEUE_LOW},
+    },
+
+    # Time limits — tránh worker bị treo vô thời hạn
+    # soft limit: gửi SoftTimeLimitExceeded exception cho task
+    # hard limit: SIGKILL nếu task vẫn chạy sau đó
+    task_soft_time_limit=30 * 60,   # 30 phút — cảnh báo
+    task_time_limit=35 * 60,        # 35 phút — force kill
+
+    # Worker prefetch — mỗi worker chỉ nhận 1 task (tránh worker chậm giữ nhiều task)
+    worker_prefetch_multiplier=1,
+
+    # Acknowledge sau khi task chạy xong (không phải khi nhận) → tránh mất task khi worker crash
+    task_acks_late=True,
+
+    # Cho phép worker tự huỷ task trùng
+    task_reject_on_worker_lost=True,
 )
 
 
@@ -50,7 +74,15 @@ def _persist_failure(task_id: str, error: Exception):
     except Exception as exc:
         print(f"[DB_PERSIST_ERROR] task_id={task_id} status=failed error={exc!r}")
 
-@celery_app.task(bind=True)
+@celery_app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,       # 60s trước khi retry lần 1
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,           # exponential backoff: 60s, 120s
+    retry_backoff_max=300,        # tối đa 5 phút giữa các retry
+    retry_jitter=True,            # thêm jitter tránh thundering herd
+)
 def run_mcq_pipeline(
     self,
     topics: list,
@@ -129,6 +161,13 @@ def run_mcq_pipeline(
                 score_langfuse_trace("failed_questions", float(failed))
                 if isinstance(result, dict):
                     _persist_success(task_id, result)
+                    # Cache task_id để dedup các request giống nhau trong tương lai
+                    if accepted > 0:
+                        try:
+                            from api.core.cache import set_cached_task_id
+                            set_cached_task_id(topics, retrieval_mode, task_id)
+                        except Exception as cache_exc:
+                            print(f"[CACHE_SET_WARN] {cache_exc!r}")
     except Exception as exc:
         score_langfuse_trace("job_failed", 1.0, comment=str(exc))
         _persist_failure(task_id, exc)

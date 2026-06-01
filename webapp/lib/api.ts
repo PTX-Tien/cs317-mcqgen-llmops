@@ -2,15 +2,35 @@ import axios from "axios";
 
 const normalizeUrl = (value?: string) => value?.trim().replace(/\/$/, "") || "";
 
+/**
+ * Auto-detect API base URL.
+ *
+ * HTTP (REST):
+ *   - Port 80/443  → /api prefix (Next.js rewrites → FastAPI:8080 nội bộ)
+ *   - Port khác    → direct :8080
+ *
+ * WebSocket:
+ *   - Luôn dùng port 8080 trực tiếp (Next.js rewrites không hỗ trợ WS)
+ */
 const browserBackendUrl = (kind: "http" | "ws") => {
   if (typeof window === "undefined") return "";
-  const protocol =
-    kind === "ws"
-      ? window.location.protocol === "https:"
-        ? "wss"
-        : "ws"
-      : window.location.protocol.replace(":", "");
-  return `${protocol}://${window.location.hostname}:8080`;
+  const port = window.location.port;
+  const hostname = window.location.hostname;
+  const isStandardPort = !port || port === "80" || port === "443";
+  const httpProto = window.location.protocol.replace(":", "");
+  const wsProto   = window.location.protocol === "https:" ? "wss" : "ws";
+
+  if (kind === "ws") {
+    // WebSocket luôn đi thẳng đến FastAPI (rewrites không support WS)
+    return `${wsProto}://${hostname}:8080`;
+  }
+
+  if (isStandardPort) {
+    // HTTP qua Next.js proxy (/api rewrite → FastAPI:8080)
+    return `${httpProto}://${hostname}/api`;
+  }
+  // Dev mode: HTTP trực tiếp
+  return `${httpProto}://${hostname}:8080`;
 };
 
 const API_URL =

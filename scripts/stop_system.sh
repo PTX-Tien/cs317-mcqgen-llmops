@@ -1,4 +1,6 @@
 #!/bin/bash
+# MCQGen System Stop (no Docker)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -6,14 +8,30 @@ API_PORT=${API_PORT:-8080}
 WEBAPP_PORT=${WEBAPP_PORT:-8081}
 PHOENIX_PORT=${PHOENIX_PORT:-8082}
 VLLM_PORT=${VLLM_PORT:-7681}
+REDIS_PORT=${REDIS_PORT:-6379}
 
 echo "Stopping MCQGen system..."
-pkill -f "uvicorn.*api.main.*--port $API_PORT" 2>/dev/null && echo "  ✅ FastAPI stopped"
-pkill -f "celery.*worker"                     2>/dev/null && echo "  ✅ Celery stopped"
-pkill -f "phoenix.server.*--port $PHOENIX_PORT" 2>/dev/null && echo "  ✅ Phoenix stopped"
-pkill -f "next.*$PROJECT/webapp"              2>/dev/null && echo "  ✅ Next.js stopped"
-pkill -f "next-server.*$PROJECT/webapp"       2>/dev/null && echo "  ✅ Next.js server stopped"
-pkill -f "next.*--port $WEBAPP_PORT"          2>/dev/null && echo "  ✅ Next.js port $WEBAPP_PORT stopped"
-pkill -f "vllm serve.*--port $VLLM_PORT"      2>/dev/null && echo "  ✅ vLLM stopped"
-redis-cli shutdown                            2>/dev/null && echo "  ✅ Redis stopped"
+
+stop_proc() {
+    local pattern=$1 label=$2
+    if pkill -f "$pattern" 2>/dev/null; then
+        echo "  ✅ $label stopped"
+    fi
+}
+
+stop_proc "uvicorn.*api.main.*--port $API_PORT"   "FastAPI"
+stop_proc "celery.*mcqgen.*worker"                 "Celery workers"
+stop_proc "celery.*mcqgen.*flower"                 "Flower"
+stop_proc "phoenix.server.*--port $PHOENIX_PORT"   "Phoenix"
+stop_proc "next.*--port $WEBAPP_PORT"              "Next.js"
+stop_proc "next-server.*$PROJECT/webapp"           "Next.js server"
+stop_proc "vllm serve.*--port $VLLM_PORT"          "vLLM"
+
+# Redis: shutdown graceful, không tắt nếu có service khác dùng
+if redis-cli -p $REDIS_PORT ping 2>/dev/null | grep -q PONG; then
+    redis-cli -p $REDIS_PORT shutdown nosave 2>/dev/null \
+        && echo "  ✅ Redis stopped" \
+        || echo "  ⚠️  Redis shutdown failed (có thể đang dùng bởi service khác)"
+fi
+
 echo "Done."
