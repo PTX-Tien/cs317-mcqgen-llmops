@@ -9,8 +9,6 @@ from .common import (
     build_p6_remove_bad,
     build_p7_select_final,
     build_p8_assemble,
-    build_p9_explanation,
-    EXPLAIN_SYSTEM_PROMPT,
     build_eval_overall_prompt,
     parse_json_output,
 )
@@ -22,6 +20,7 @@ from openai import AsyncOpenAI
 import chromadb
 from sentence_transformers import SentenceTransformer
 from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
+from .math_format import normalize_mcq_math
 from .opening_families import (
     select_opening_family,
     build_opening_style_card,
@@ -37,7 +36,6 @@ INDEX_DIR  = Path("data/indexes")
 OUTPUT_DIR = Path("output/exp_01")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ENABLE_LLM_EVAL = os.getenv("ENABLE_LLM_EVAL", "0") == "1"
-ENABLE_EXPLANATION = os.getenv("ENABLE_EXPLANATION", "1") == "1"
 DEFAULT_RETRIEVAL_MODE = os.getenv("DEFAULT_RETRIEVAL_MODE", "auto")
 
 def env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -398,8 +396,6 @@ async def generate_one_mcq(
     # ── Phase 1: diversity context ──
     opening_style_card: str = "",
     previous_openings_block: str = "",
-    # ── Phase 2: family routing ──
-    opening_family: str | None = None,
 ) -> dict | None:
     topic      = topic_cfg["topic"]
     difficulty = topic_cfg["difficulty"]
@@ -407,14 +403,13 @@ async def generate_one_mcq(
     q_id       = f"{topic_cfg['topic_id']}_q{seq:02d}"
 
     async with atimer("TOTAL", q_id):
-        # ── Retrieve context (Phase 2: pass opening_family) ───────
+        # ── Retrieve context ──────────────────────────────────────
         if precomputed_rag is None:
             async with atimer("RAG", q_id):
                 context, rag_debug = await adaptive_retrieve(
                     topic,
                     chapter_id,
                     mode=retrieval_mode,
-                    opening_family=opening_family,
                 )
         else:
             context, rag_debug = precomputed_rag
@@ -510,20 +505,8 @@ async def generate_one_mcq(
                 return None
             p8 = repaired_opening
 
+        p8 = normalize_mcq_math(p8)
         log_mcq_debug(q_id, p8)
-
-        # ── P9: Generate Explanation (tái sử dụng từ src/gen/explain_mcq.py) ──
-        if ENABLE_EXPLANATION:
-            p9_prompt = build_p9_explanation(p8, concept_context=context)
-            async with atimer("P9_EXPLAIN", q_id):
-                raw_p9 = await llm(p9_prompt, temperature=0.3, max_tokens=1200)
-            p9 = parse_json_output(raw_p9)
-            if "error" not in p9:
-                p8["explanation"] = p9
-                print(f"    ✅ Explanation generated [{q_id}]")
-            else:
-                print(f"    ⚠️  P9 explanation parse error [{q_id}], skipping")
-                p8["explanation"] = None
 
         # ── Optional Call 7: Eval Overall ─────────────────────────
         if ENABLE_LLM_EVAL:
@@ -632,32 +615,21 @@ async def run_pipeline_with_topics(
         key = (topic_cfg["topic"], topic_cfg["chapter_id"], retrieval_mode)
         unique_topic_configs.setdefault(key, topic_cfg)
 
-    # Phase 2: RAG precompute is SKIPPED when opening_family routing is active.
-    # RAG will be called lazily inside generate_one_mcq after opening_family is known.
-    # This lets family routing (cross-chapter, multi-query) adapt to each question type.
-    use_lazy_rag = os.getenv("ENABLE_LAZY_RAG", "true").lower() == "true"
-
-    if not use_lazy_rag:
-        # Legacy: precompute RAG (no family routing)
-        total_topics = len(unique_topic_configs)
-        for idx, (key, topic_cfg) in enumerate(unique_topic_configs.items(), 1):
-            topic, chapter_id, mode = key
-            cache_id = f"{topic_cfg.get('topic_id', 'topic')}:{topic}"
-            async with atimer("RAG_PRECOMPUTE", cache_id):
-                rag_cache[key] = await adaptive_retrieve(topic, chapter_id, mode=mode)
-            progress = 10 + int((idx / total_topics) * 15) if total_topics else 25
-            emit_progress(
-                min(progress, 25),
-                f"retrieving_context {idx}/{total_topics}",
-                current_question=0,
-                total_questions=total_questions,
-                current_topic=idx,
-                total_topics=total_topics,
-            )
-    else:
-        # Phase 2: Lazy RAG — skip precompute, go straight to generation
-        emit_progress(25, "lazy_rag_enabled",
-                      current_question=0, total_questions=total_questions)
+    total_topics = len(unique_topic_configs)
+    for idx, (key, topic_cfg) in enumerate(unique_topic_configs.items(), 1):
+        topic, chapter_id, mode = key
+        cache_id = f"{topic_cfg.get('topic_id', 'topic')}:{topic}"
+        async with atimer("RAG_PRECOMPUTE", cache_id):
+            rag_cache[key] = await adaptive_retrieve(topic, chapter_id, mode=mode)
+        progress = 10 + int((idx / total_topics) * 15) if total_topics else 25
+        emit_progress(
+            min(progress, 25),
+            f"retrieving_context {idx}/{total_topics}",
+            current_question=0,
+            total_questions=total_questions,
+            current_topic=idx,
+            total_topics=total_topics,
+        )
 
     completed_questions = 0
 
@@ -690,7 +662,6 @@ async def run_pipeline_with_topics(
                 retrieval_mode=retrieval_mode,
                 opening_style_card=style_card,
                 previous_openings_block=prev_block,
-                opening_family=family,  # Phase 2: pass family for routing
             )
 
             # Update previous_openings after successful generation

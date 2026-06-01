@@ -15,6 +15,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .math_format import MATH_FORMAT_INSTRUCTIONS
+
 # ==============================================================================
 # 1. EXPERIMENT CONFIG — ĐỔI TÊN EXP TRƯỚC KHI CHẠY
 # ==============================================================================
@@ -214,6 +216,8 @@ Bạn đang biên soạn câu hỏi cho sinh viên đại học để dùng tron
 - `question_text` không được chứa các cụm: "đáp án đúng là", "vì đáp án", "giải thích", "nên chọn".
 - Phương án trả lời phải ngắn gọn như đáp án trong đề thi trắc nghiệm, không viết thành đoạn giải thích dài.
 - Mỗi phương án nên dưới 140 ký tự nếu có thể.
+
+{MATH_FORMAT_INSTRUCTIONS}
 
 [STRICT RULE — CÂU HỎI KHÔNG ĐƯỢC CHỨA ĐÁP ÁN]
 - **TUYỆT ĐỐI KHÔNG** được ghi đáp án đúng (hoặc một phần nội dung của đáp án đúng) vào trong question_text / stem.
@@ -451,6 +455,9 @@ KHÔNG được thay đổi tập đáp án đúng.
 - Không được paraphrase quá gần với correct answers.
 - Không lộ mẹo làm bài bằng grammar clue, absolute terms, hoặc độ dài quá khác biệt.
 - Tất cả distractors bằng tiếng Việt CÓ DẤU, phù hợp ngữ cảnh đề thi.
+- Nếu distractor có công thức hoặc ký hiệu toán học, tuân thủ định dạng LaTeX dưới đây.
+
+{MATH_FORMAT_INSTRUCTIONS}
 
 [YÊU CẦU MISCONCEPTION — BẮT BUỘC]
 Mỗi distractor PHẢI đánh trúng một lỗi hiểu sai (misconception) cụ thể của sinh viên.
@@ -685,6 +692,8 @@ Nhiệm vụ của bạn là lắp ráp câu hỏi hoàn chỉnh với 4 options
 - Phương án A/B/C/D phải ngắn gọn như phương án thi trắc nghiệm, không phải đoạn giải thích.
 - Không tạo field giải thích đáp án, rationale, `style_alignment_note` trong output cuối.
 
+{MATH_FORMAT_INSTRUCTIONS}
+
 [CONSTRAINTS]
 - Tổng số options = 4.
 - Gán nhãn A, B, C, D cho 4 options.
@@ -817,115 +826,6 @@ Kiểm tra từng distractor (phương án SAI) theo 6 loại IWF:
 """
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# P9: EXPLANATION — Tái sử dụng prompt từ src/gen/explain_mcq.py
-# ═══════════════════════════════════════════════════════════════════════════════
-
-EXPLAIN_SYSTEM_PROMPT = (
-    "Bạn là giảng viên đại học chuyên giải thích câu hỏi trắc nghiệm cho sinh viên. "
-    "Nhiệm vụ: tạo explanation rõ ràng, có trích dẫn, giúp sinh viên HIỂU "
-    "vì sao đáp án đúng và vì sao các đáp án sai KHÔNG đúng. "
-    "Không dùng markup phức tạp — chỉ plain text tiếng Việt."
-)
-
-EXPLAIN_USER_PROMPT_TEMPLATE = """[ROLE]
-Bạn là giảng viên đại học giỏi giải thích câu hỏi trắc nghiệm.
-Mỗi câu hỏi bạn giải thích cần giúp sinh viên HIỂU
-vì sao đáp án đúng đúng và vì sao các đáp án sai không đúng.
-
-[NHIỆM VỤ]
-Hãy giải thích câu hỏi MCQ dưới đây. Viết 4 phần:
-  1. TẠI SAO RA CÂU HỎI NÀY — câu hỏi này kiểm tra khái niệm gì, vì sao SV cần biết, tại sao lại hỏi theo cách này
-  2. Tại sao đáp án đúng là đúng — kèm TRÍCH DẪN cụ thể (video YouTube bài giảng, slide số trang)
-  3. Tại sao từng distractor là sai — kèm TRÍCH DẪN + giải thích confusion point
-  4. Knowledge context: phạm vi môn học, nâng cao kiến thức gì, prerequisites
-
-[CÂU HỎI]
-{question_text}
-
-[OPTIONS]
-{options_str}
-
-[ĐÁP ÁN ĐÚNG: {correct_letters}]
-{correct_answers_str}
-
-[KHỐI KIẾN THỨC TỪ COURSE MATERIAL — CÓ TRÍCH DẪN VIDEO/SLIDE]
-{course_context}
-
-[YÊU CẦU — BẮT BUỘC CÓ TRÍCH DẪN]
-- **Phần 1 (đáp án đúng):** Giải thích 2-4 câu, SAU MỖI câu giải thích phải ghi trích dẫn:
-    VD: "Gradient descent cập nhật trọng số theo hướng giảm gradient, được giải thích trong slide CS116-Bai07a, trang 5."
-- **Phần 2 (distractors):** Mỗi distractor 1-2 câu, ghi rõ VÌ SAO sai + confusion point + trích dẫn.
-    VD: "Đáp án B sai vì nó mô tả hàm activation ReLU, không phải sigmoid. Xem slide CS116-Bai08, trang 3."
-- **Phần 3 (knowledge context):** 2-3 câu, nêu phạm vi + prerequisites + advanced knowledge.
-- **TRÍCH DẪN BẮT BUỘC:** Ghi rõ tên slide + số trang.
-  Nếu có video YouTube liên quan → ghi thêm URL video.
-- VIẾT BẰNG TIẾNG VIỆT, rõ ràng, có trích dẫn rõ ràng sau mỗi ý.
-- KHÔNG trích dẫn nguồn internet bên ngoài (web search).
-
-[OUTPUT FORMAT — JSON ONLY]
-{{
-  "question_motivation": "<2-3 câu: TẠI SAO ra câu hỏi này, câu hỏi kiểm tra khái niệm gì, vì sao SV cần nắm vững>",
-  "correct_answer_rationale": "<2-4 câu giải thích TẠI SAO đúng, kèm trích dẫn cụ thể (tên slide + số trang)>",
-  "distractor_explanations": {{
-    "<letter>": "<1-2 câu: vì sao sai + confusion point + trích dẫn cụ thể>",
-    "<letter>": "...",
-    "<letter>": "..."
-  }},
-  "knowledge_context": {{
-    "topic_scope": "<mô tả phạm vi topic>",
-    "prerequisites": ["<khái niệm 1>", "<khái niệm 2>"],
-    "advanced_knowledge": "<kiến thức nâng cao liên quan>",
-    "learning_value": "<câu hỏi này giúp sinh viên hiểu được gì>"
-  }}
-}}
-"""
-
-
-def build_p9_explanation(
-    mcq_json: dict[str, Any],
-    concept_context: str = "",
-) -> str:
-    """
-    Build prompt P9 — tái sử dụng từ src/gen/explain_mcq.py.
-
-    Input:
-      - mcq_json: output từ P8 (question_text, options, correct_answers, ...)
-      - concept_context: RAG context đã retrieve
-
-    Returns: formatted prompt string
-    """
-    question_text   = mcq_json.get("question_text", "")
-    options         = mcq_json.get("options", {})
-    correct_letters = mcq_json.get("correct_answers", [])
-
-    # Build options string
-    opt_lines = []
-    for letter in ["A", "B", "C", "D"]:
-        text = options.get(letter, "")
-        if text:
-            opt_lines.append(f"  {letter}. {text}")
-    options_str = "\n".join(opt_lines)
-
-    # Build correct answers string
-    correct_ans_lines = []
-    for letter in correct_letters:
-        text = options.get(letter, "")
-        correct_ans_lines.append(f"  {letter}. {text}")
-    correct_answers_str = "\n".join(correct_ans_lines)
-
-    # Course context từ RAG (đã có sẵn)
-    course_context = concept_context if concept_context else "(không có course material — dùng kiến thức của bạn)"
-
-    return EXPLAIN_USER_PROMPT_TEMPLATE.format(
-        question_text=question_text,
-        options_str=options_str,
-        correct_letters=", ".join(correct_letters),
-        correct_answers_str=correct_answers_str,
-        course_context=course_context[:3000],
-    )
-
-
 # ==============================================================================
 # 3. UTILITY FUNCTIONS
 # ==============================================================================
@@ -937,12 +837,35 @@ def parse_json_output(raw_text: str) -> dict[str, Any]:
     if "</think>" in text:
         text = text.split("</think>", 1)[1].strip()
 
+    def escape_invalid_json_backslashes(candidate: str) -> str:
+        # LLMs often emit LaTeX as "$\frac{...}$" inside JSON strings.  JSON
+        # only allows a small set of escapes, so repair backslashes that are
+        # not valid JSON escapes before giving up.
+        return re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", candidate)
+
+    def escape_latex_json_backslashes(candidate: str) -> str:
+        latex_commands = (
+            "frac|sqrt|sum|prod|hat|bar|le|ge|neq|approx|times|cdot|pm|"
+            "infty|nabla|alpha|beta|gamma|delta|lambda|mu|sigma|theta|pi|"
+            "Delta|rightarrow|leftarrow"
+        )
+        return re.sub(
+            rf"(?<!\\)\\(?=(?:{latex_commands})\b)",
+            r"\\\\",
+            candidate,
+        )
+
     def try_load(candidate: str) -> dict[str, Any] | None:
+        candidate = escape_latex_json_backslashes(candidate.strip())
         try:
-            parsed = json.loads(candidate.strip())
+            parsed = json.loads(candidate)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
-            return None
+            try:
+                parsed = json.loads(escape_invalid_json_backslashes(candidate))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
 
     candidates = [text]
     candidates.extend(
