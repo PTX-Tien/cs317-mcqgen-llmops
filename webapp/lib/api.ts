@@ -1,10 +1,26 @@
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+function resolveApiUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) return configured;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8080`;
+  }
+  return "http://localhost:8080";
+}
 
+function resolveWsUrl() {
+  const configured = process.env.NEXT_PUBLIC_WS_URL?.trim();
+  if (configured) return configured;
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.hostname}:8080`;
+  }
+  return "ws://localhost:8080";
+}
 
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: resolveApiUrl(),
   timeout: 30000,
 });
 
@@ -30,4 +46,4 @@ api.interceptors.response.use(
   },
 );
 
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080"
+export const WS_URL = resolveWsUrl()
