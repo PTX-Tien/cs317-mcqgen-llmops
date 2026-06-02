@@ -44,15 +44,23 @@ class Settings:
     RATE_LIMIT_STUDENT: str = os.getenv("RATE_LIMIT_STUDENT", "20/hour")
 
     # Pipeline concurrency
+    MCQGEN_TARGET_CONCURRENT_USERS: int = _env_int("MCQGEN_TARGET_CONCURRENT_USERS", 3)
+    CELERY_GENERATION_CONCURRENCY: int = _env_int(
+        "CELERY_GENERATION_CONCURRENCY",
+        MCQGEN_TARGET_CONCURRENT_USERS,
+    )
     MCQGEN_MAX_CONCURRENT_QUESTIONS: int = _env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 4)
     MCQGEN_LLM_MAX_CONCURRENCY: int = _env_int(
         "MCQGEN_LLM_MAX_CONCURRENCY",
         MCQGEN_MAX_CONCURRENT_QUESTIONS,
     )
+    MCQGEN_CONCURRENCY_AUTOTUNE: str = os.getenv("MCQGEN_CONCURRENCY_AUTOTUNE", "1")
 
     # Celery queues
-    CELERY_QUEUE_HIGH: str = os.getenv("CELERY_QUEUE_HIGH", "mcq.high")
-    CELERY_QUEUE_LOW:  str = os.getenv("CELERY_QUEUE_LOW",  "mcq.low")
+    CELERY_WORKER_NAMESPACE: str = os.getenv("CELERY_WORKER_NAMESPACE") or os.getenv("USER", "mcqgen")
+    CELERY_QUEUE_NAMESPACE: str = os.getenv("CELERY_QUEUE_NAMESPACE") or CELERY_WORKER_NAMESPACE
+    CELERY_QUEUE_HIGH: str = os.getenv("CELERY_QUEUE_HIGH", f"mcq.{CELERY_QUEUE_NAMESPACE}.high")
+    CELERY_QUEUE_LOW:  str = os.getenv("CELERY_QUEUE_LOW",  f"mcq.{CELERY_QUEUE_NAMESPACE}.low")
 
     # Cache TTLs (seconds)
     CACHE_TTL_GENERATION: int = _env_int("CACHE_TTL_GENERATION", 7 * 86400)   # 7 ngày

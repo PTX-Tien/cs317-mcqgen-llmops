@@ -15,6 +15,30 @@ _CLIENT: Any | None = None
 _IMPORT_ERROR_REPORTED = False
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
+PROPAGATED_METADATA_KEYS = {
+    "task_id",
+    "session_id",
+    "output_name",
+    "retrieval_mode",
+    "n_questions",
+    "topic_count",
+    "user_role",
+    "role",
+    "use_case",
+    "load_scenario",
+    "concurrency_at_submit",
+    "active_jobs_at_submit",
+    "queued_jobs_at_submit",
+    "queue_depth_at_submit",
+    "target_concurrent_users",
+    "celery_generation_concurrency",
+    "question_concurrency_per_job",
+    "llm_concurrency_per_job",
+    "vllm_max_num_seqs",
+    "total_llm_slots",
+    "celery_queue_high",
+    "celery_worker_namespace",
+}
 
 
 def _env_enabled(name: str, default: str = "0") -> bool:
@@ -74,6 +98,26 @@ def truncate_for_langfuse(value: Any, limit: int | None = None) -> Any:
     return f"{value[:limit]}\n... [truncated {omitted} chars]"
 
 
+def sanitize_for_langfuse(value: Any, limit: int | None = None, depth: int = 0) -> Any:
+    """Recursively trim large payloads before sending them to LangFuse."""
+    if depth > 4:
+        return truncate_for_langfuse(str(value), limit)
+    if isinstance(value, str):
+        return truncate_for_langfuse(value, limit)
+    if isinstance(value, dict):
+        return {
+            str(k): sanitize_for_langfuse(v, limit, depth + 1)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+        trimmed = [sanitize_for_langfuse(v, limit, depth + 1) for v in items[:20]]
+        if len(items) > 20:
+            trimmed.append(f"... [truncated {len(items) - 20} items]")
+        return trimmed
+    return value
+
+
 def usage_details_from_response(response: Any) -> dict[str, int] | None:
     usage = getattr(response, "usage", None)
     if usage is None:
@@ -99,6 +143,30 @@ def usage_details_from_response(response: Any) -> dict[str, int] | None:
     return details or None
 
 
+def _to_propagated_attr(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) > 200:
+        text = text[:200]
+    try:
+        text.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+    return text
+
+
+def _propagated_metadata(metadata: dict[str, Any] | None) -> dict[str, str] | None:
+    if not metadata:
+        return None
+    safe: dict[str, str] = {}
+    for key in PROPAGATED_METADATA_KEYS:
+        value = _to_propagated_attr(metadata.get(key))
+        if value is not None:
+            safe[key] = value
+    return safe or None
+
+
 @contextmanager
 def langfuse_attributes(
     *,
@@ -106,21 +174,29 @@ def langfuse_attributes(
     session_id: str | None = None,
     tags: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
+    trace_name: str | None = None,
 ) -> Iterator[None]:
     """Attach trace-level attributes for all child observations."""
     client = init_langfuse()
-    if client is None or not hasattr(client, "propagate_attributes"):
+    if client is None:
         yield
         return
 
     kwargs = {
-        "user_id": user_id,
-        "session_id": session_id,
+        "user_id": _to_propagated_attr(user_id),
+        "session_id": _to_propagated_attr(session_id),
         "tags": tags,
-        "metadata": metadata,
+        "metadata": _propagated_metadata(metadata),
+        "trace_name": _to_propagated_attr(trace_name),
     }
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
-    with client.propagate_attributes(**kwargs):
+    try:
+        from langfuse import propagate_attributes
+
+        with propagate_attributes(**kwargs):
+            yield
+    except Exception as exc:  # pragma: no cover - optional dependency path
+        print(f"LangFuse attributes propagation skipped: {exc}", file=sys.stderr)
         yield
 
 
@@ -143,9 +219,9 @@ def langfuse_observation(
     payload = {
         "name": name,
         "as_type": as_type,
-        "input": input,
-        "output": output,
-        "metadata": metadata,
+        "input": sanitize_for_langfuse(input),
+        "output": sanitize_for_langfuse(output),
+        "metadata": sanitize_for_langfuse(metadata),
     }
     payload.update(kwargs)
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -154,7 +230,7 @@ def langfuse_observation(
 
 
 def update_langfuse_observation(observation: Any | None = None, **kwargs: Any) -> None:
-    payload = {k: v for k, v in kwargs.items() if v is not None}
+    payload = {k: sanitize_for_langfuse(v) for k, v in kwargs.items() if v is not None}
     if not payload:
         return
 
@@ -177,6 +253,32 @@ def score_langfuse_trace(name: str, value: float, comment: str | None = None) ->
         client.score_current_trace(name=name, value=value, comment=comment)
     except Exception as exc:  # pragma: no cover - optional dependency path
         print(f"LangFuse score skipped: {exc}", file=sys.stderr)
+
+
+def score_langfuse_observation(
+    observation: Any | None,
+    name: str,
+    value: float,
+    comment: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    try:
+        payload = {
+            "name": name,
+            "value": float(value),
+            "comment": comment,
+            "metadata": sanitize_for_langfuse(metadata),
+            "data_type": "NUMERIC",
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+        if observation is not None and hasattr(observation, "score"):
+            observation.score(**payload)
+            return
+        client = init_langfuse()
+        if client is not None and hasattr(client, "score_current_span"):
+            client.score_current_span(**payload)
+    except Exception as exc:  # pragma: no cover - optional dependency path
+        print(f"LangFuse observation score skipped: {exc}", file=sys.stderr)
 
 
 def flush_langfuse() -> None:

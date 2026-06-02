@@ -13,8 +13,6 @@ import {
   BookOpen,
   BarChart3,
   Wrench,
-  Database,
-  Monitor,
 } from "lucide-react";
 
 import { useAuthStore } from "@/lib/store";
@@ -69,6 +67,10 @@ export default function DashboardPage() {
 
   const pendingJobs = queueStatus?.pending_jobs ?? 0;
   const isQueueIdle = queueStatus?.status === "idle";
+  const serviceUrl = (portPath: string) => {
+    if (typeof window === "undefined") return "#";
+    return `${window.location.protocol}//${window.location.hostname}${portPath}`;
+  };
 
   return (
     <div className="space-y-5">
@@ -217,7 +219,7 @@ export default function DashboardPage() {
             </h3>
           </div>
           <div className="flex flex-wrap gap-3">
-            <a href="http://192.168.20.154:8080/docs" target="_blank">
+            <a href={serviceUrl(":8080/docs")} target="_blank" rel="noopener noreferrer">
               <Button
                 variant="outline"
                 className="rounded-xl border-slate-200 gap-2 text-sm"
@@ -226,25 +228,16 @@ export default function DashboardPage() {
                 API Docs
               </Button>
             </a>
-            <a href="http://192.168.20.154:6006" target="_blank">
+            <a href={serviceUrl(":8083")} target="_blank" rel="noopener noreferrer">
               <Button
                 variant="outline"
                 className="rounded-xl border-slate-200 gap-2 text-sm"
               >
                 <BarChart3 className="h-4 w-4 text-orange-500" />
-                Phoenix
+                Langfuse
               </Button>
             </a>
-            <a href="http://192.168.20.154:3001" target="_blank">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
-              >
-                <Database className="h-4 w-4 text-emerald-500" />
-                Grafana
-              </Button>
-            </a>
-            <a href="http://192.168.20.154:5555" target="_blank">
+            <a href={serviceUrl(":5555")} target="_blank" rel="noopener noreferrer">
               <Button
                 variant="outline"
                 className="rounded-xl border-slate-200 gap-2 text-sm"
