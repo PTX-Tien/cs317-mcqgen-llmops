@@ -6,7 +6,6 @@ PROJECT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 API_PORT=${API_PORT:-8080}
 WEBAPP_PORT=${WEBAPP_PORT:-8081}
-PHOENIX_PORT=${PHOENIX_PORT:-8082}
 VLLM_PORT=${VLLM_PORT:-7681}
 REDIS_PORT=${REDIS_PORT:-6379}
 
@@ -22,7 +21,6 @@ stop_proc() {
 stop_proc "uvicorn.*api.main.*--port $API_PORT"   "FastAPI"
 stop_proc "celery.*mcqgen.*worker"                 "Celery workers"
 stop_proc "celery.*mcqgen.*flower"                 "Flower"
-stop_proc "phoenix.server.*--port $PHOENIX_PORT"   "Phoenix"
 stop_proc "next.*--port $WEBAPP_PORT"              "Next.js"
 stop_proc "next-server.*$PROJECT/webapp"           "Next.js server"
 stop_proc "vllm serve.*--port $VLLM_PORT"          "vLLM"

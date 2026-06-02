@@ -15,10 +15,11 @@ from .common import (
     parse_json_output,
 )
 
-import asyncio, json, os, time, re
+import asyncio, json, os, time, re, unicodedata
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from openai import AsyncOpenAI
 import chromadb
@@ -82,12 +83,20 @@ CELERY_GENERATION_CONCURRENCY = env_int(
     "CELERY_GENERATION_CONCURRENCY",
     TARGET_CONCURRENT_USERS,
 )
+VLLM_MAX_NUM_SEQS = env_int("VLLM_MAX_NUM_SEQS", 4)
+ENABLE_DYNAMIC_CONCURRENCY = env_bool("MCQGEN_DYNAMIC_CONCURRENCY", True)
 VLLM_TIMEOUT_SECONDS = env_float(
     "VLLM_TIMEOUT_SECONDS",
     env_float("VLLM_TIMEOUT", 180.0),
 )
 VLLM_MAX_RETRIES = env_int("VLLM_MAX_RETRIES", 1, minimum=0)
 ENABLE_LLM_STREAM_METRICS = env_bool("MCQGEN_LLM_STREAM_METRICS", True)
+DEDUP_SIMILARITY_THRESHOLD = env_float(
+    "MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD",
+    0.86,
+    minimum=0.5,
+)
+DEDUP_MIN_CHARS = env_int("MCQGEN_DEDUP_MIN_CHARS", 32)
 _LLM_SEMAPHORES: dict[int, asyncio.Semaphore] = {}
 _LLM_CLIENTS: dict[int, AsyncOpenAI] = {}
 
@@ -120,10 +129,6 @@ TOPICS = [
 SYSTEM_PROMPT = """Bạn là giảng viên Trường ĐH Công nghệ Thông tin ĐHQG-HCM,
 dạy môn CS116 – Lập trình Python cho Máy học.
 Bạn đang biên soạn câu hỏi trắc nghiệm cho sinh viên đại học."""
-
-# ── Phoenix Tracing ──────────────────────────────────────────────
-from monitoring.setup_tracing import init_tracing
-init_tracing(project_name='mcqgen')
 
 # ── Retrieval setup ───────────────────────────────────────────────
 print("Ready.\n")  # models loaded in advanced_retrieval.py
@@ -303,7 +308,7 @@ async def llm(
     metadata = {
         "model": MODEL,
         "prompt_name": prompt_name,
-        "use_case": trace_metadata.get("use_case") or "exam_generation",
+        "use_case": trace_metadata.get("use_case") or "generate_exam",
         "temperature": temperature,
         "max_tokens": max_tokens,
         "streaming_metrics_enabled": ENABLE_LLM_STREAM_METRICS,
@@ -543,7 +548,7 @@ def build_question_metadata(
     for key in ("task_id", "session_id", "user_id", "exam_name", "output_name", "use_case"):
         if trace_payload.get(key):
             metadata[key] = trace_payload[key]
-    metadata.setdefault("use_case", "exam_generation")
+    metadata.setdefault("use_case", "generate_exam")
     return metadata
 
 
@@ -574,6 +579,98 @@ def build_failure_record(
     if parsed is not None:
         failure["parsed_preview"] = sanitize_for_langfuse(parsed, 2000)
     return failure
+
+
+def normalize_for_dedup(text: str) -> str:
+    text = unicodedata.normalize("NFD", text or "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def token_jaccard(a: str, b: str) -> float:
+    tokens_a = set(a.split())
+    tokens_b = set(b.split())
+    if not tokens_a or not tokens_b:
+        return 0.0
+    return len(tokens_a & tokens_b) / max(1, len(tokens_a | tokens_b))
+
+
+def duplicate_similarity(a: str, b: str) -> float:
+    norm_a = normalize_for_dedup(a)
+    norm_b = normalize_for_dedup(b)
+    if len(norm_a) < DEDUP_MIN_CHARS or len(norm_b) < DEDUP_MIN_CHARS:
+        return 0.0
+    sequence_score = SequenceMatcher(None, norm_a, norm_b).ratio()
+    token_score = token_jaccard(norm_a, norm_b)
+    return max(sequence_score, token_score)
+
+
+def find_duplicate_question(question_text: str, history: list[dict]) -> dict | None:
+    best: dict | None = None
+    best_score = 0.0
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        old_text = str(item.get("question_text") or "")
+        score = duplicate_similarity(question_text, old_text)
+        if score > best_score:
+            best_score = score
+            best = item
+    if best and best_score >= DEDUP_SIMILARITY_THRESHOLD:
+        return {
+            "similarity": round(best_score, 4),
+            "matched_question_id": best.get("question_id"),
+            "matched_question_text": truncate_for_langfuse(best.get("question_text", ""), 600),
+            "matched_exam_name": best.get("exam_name"),
+            "matched_topic": best.get("topic"),
+            "matched_chapter_id": best.get("chapter_id"),
+            "threshold": DEDUP_SIMILARITY_THRESHOLD,
+        }
+    return None
+
+
+def relevant_history_questions(
+    previous_questions: list[dict],
+    topic: str,
+    chapter_id: str,
+    limit: int = 20,
+) -> list[dict]:
+    exact: list[dict] = []
+    same_chapter: list[dict] = []
+    others: list[dict] = []
+    topic_norm = normalize_for_dedup(topic)
+    for item in previous_questions:
+        if not isinstance(item, dict):
+            continue
+        item_topic = normalize_for_dedup(str(item.get("topic") or ""))
+        item_chapter = str(item.get("chapter_id") or "")
+        if item_chapter == chapter_id and item_topic == topic_norm:
+            exact.append(item)
+        elif item_chapter == chapter_id:
+            same_chapter.append(item)
+        else:
+            others.append(item)
+    return (exact + same_chapter + others)[:limit]
+
+
+def build_history_avoidance_block(previous_questions: list[dict], topic: str, chapter_id: str) -> str:
+    relevant = relevant_history_questions(previous_questions, topic, chapter_id, limit=20)
+    if not relevant:
+        return ""
+    lines = [
+        "\nRàng buộc chống trùng lịch sử user:",
+        "- Không được tạo lại câu hỏi có cùng stem/tình huống/ý hỏi với các câu dưới đây.",
+        "- Hãy đổi bối cảnh, dữ kiện, yêu cầu suy luận và cách hỏi nếu vẫn kiểm tra cùng khái niệm.",
+        "- Output vẫn phải đúng JSON theo schema đã yêu cầu.",
+        "Các câu hỏi user đã từng nhận:",
+    ]
+    for idx, item in enumerate(relevant, 1):
+        text = re.sub(r"\s+", " ", str(item.get("question_text") or "")).strip()
+        if text:
+            lines.append(f"{idx}. {truncate_for_langfuse(text, 320)}")
+    return "\n".join(lines) + "\n"
 
 
 def reject_question(
@@ -650,6 +747,21 @@ async def atimer(name: str, q_id: str):
         print(f"[TIMING] {q_id} | {name} | {dt:.2f}s")
 
 
+def effective_question_concurrency(total_questions: int, trace_payload: dict | None = None) -> int:
+    trace_payload = trace_payload or {}
+    if not ENABLE_DYNAMIC_CONCURRENCY:
+        return min(MAX_CONCURRENT_QUESTIONS, total_questions or 1)
+
+    active_jobs = int(
+        trace_payload.get("runtime_concurrent_traces")
+        or trace_payload.get("concurrent_traces_at_start")
+        or 1
+    )
+    active_jobs = max(1, active_jobs)
+    per_job_slots = max(1, VLLM_MAX_NUM_SEQS // active_jobs)
+    return min(MAX_CONCURRENT_QUESTIONS, per_job_slots, total_questions or 1)
+
+
 # ── Phase 3: Misconception helpers ────────────────────────────────
 
 def build_misconception_guidance(topic: str) -> str:
@@ -702,6 +814,7 @@ async def generate_one_mcq(
     # ── Phase 2: family routing ──
     opening_family: str | None = None,
     trace_payload: dict | None = None,
+    duplicate_checker=None,
 ) -> dict | None:
     topic      = topic_cfg["topic"]
     difficulty = topic_cfg["difficulty"]
@@ -713,6 +826,11 @@ async def generate_one_mcq(
         retrieval_mode,
         opening_family=opening_family,
         trace_payload=trace_payload,
+    )
+    previous_questions = (
+        trace_payload.get("previous_questions", [])
+        if isinstance(trace_payload, dict)
+        else []
     )
 
     async with atimer("TOTAL", q_id):
@@ -772,6 +890,7 @@ async def generate_one_mcq(
             opening_style_card=opening_style_card,
             previous_openings_block=previous_openings_block,
         )
+        p1_prompt += build_history_avoidance_block(previous_questions, topic, chapter_id)
         async with atimer("P1", q_id):
             raw_p1 = await llm(
                 p1_prompt,
@@ -1040,6 +1159,19 @@ async def generate_one_mcq(
         for meta_key in ("opening_family", "question_form", "tested_skill"):
             if meta_key not in p8 and meta_key in p1:
                 p8[meta_key] = p1[meta_key]
+        if duplicate_checker is not None:
+            duplicate = await duplicate_checker(p8)
+            if duplicate:
+                return reject_question(
+                    None,
+                    topic_cfg,
+                    seq,
+                    "dedup_history",
+                    "duplicate_question",
+                    details=duplicate,
+                    raw_text=p8.get("question_text", ""),
+                    parsed=p8,
+                )
         score = eval_result.get("quality_score", 0) if isinstance(eval_result, dict) else 0
         with langfuse_observation(
             "mcqgen.question.accepted",
@@ -1152,10 +1284,10 @@ async def run_pipeline_with_topics(
     with langfuse_attributes(
         user_id=trace_payload.get("user_id"),
         session_id=session_id,
-        tags=["mcqgen", "pipeline", "generation"],
+        tags=trace_payload.get("langfuse_tags") or ["app:mcqgen", "usecase:generate_exam"],
         metadata={
             **trace_payload,
-            "use_case": trace_payload.get("use_case") or "exam_generation",
+            "use_case": trace_payload.get("use_case") or "generate_exam",
             "output_name": output_name,
             "retrieval_mode": retrieval_mode,
             "total_questions": total_questions,
@@ -1172,7 +1304,7 @@ async def run_pipeline_with_topics(
             },
             metadata={
                 **trace_payload,
-                "use_case": trace_payload.get("use_case") or "exam_generation",
+                "use_case": trace_payload.get("use_case") or "generate_exam",
                 "total_questions": total_questions,
                 "topic_count": len(topics),
             },
@@ -1258,6 +1390,34 @@ async def _run_pipeline_with_topics_impl(
     _diversity_lock = asyncio.Lock()
     used_families: list[str] = []
     previous_openings: list[str] = []
+    _dedup_lock = asyncio.Lock()
+    previous_questions = (
+        trace_payload.get("previous_questions", [])
+        if isinstance(trace_payload, dict)
+        else []
+    )
+    seen_questions: list[dict] = [
+        item for item in previous_questions if isinstance(item, dict)
+    ]
+
+    async def duplicate_checker(mcq: dict) -> dict | None:
+        question_text = str(mcq.get("question_text") or "")
+        async with _dedup_lock:
+            duplicate = find_duplicate_question(question_text, seen_questions)
+            if duplicate:
+                duplicate["dedup_scope"] = "user_history_or_current_job"
+                duplicate["candidate_question_text"] = truncate_for_langfuse(question_text, 600)
+                return duplicate
+            seen_questions.append(
+                {
+                    "question_id": mcq.get("question_id"),
+                    "question_text": question_text,
+                    "topic": mcq.get("topic"),
+                    "chapter_id": mcq.get("chapter_id"),
+                    "exam_name": trace_payload.get("exam_name") if isinstance(trace_payload, dict) else None,
+                }
+            )
+        return None
 
     async def tracked_generate(topic_cfg: dict, seq: int):
         nonlocal completed_questions
@@ -1285,6 +1445,7 @@ async def _run_pipeline_with_topics_impl(
                 previous_openings_block=prev_block,
                 opening_family=family,  # Phase 2: pass family for routing
                 trace_payload=trace_payload,
+                duplicate_checker=duplicate_checker,
             )
 
             # Update previous_openings after successful generation
@@ -1306,7 +1467,9 @@ async def _run_pipeline_with_topics_impl(
                 total_questions=total_questions,
             )
 
-    max_concurrent_questions = min(MAX_CONCURRENT_QUESTIONS, total_questions or 1)
+    max_concurrent_questions = effective_question_concurrency(total_questions, trace_payload)
+    trace_payload["effective_question_concurrency"] = max_concurrent_questions
+    trace_payload["dynamic_concurrency"] = ENABLE_DYNAMIC_CONCURRENCY
     semaphore = asyncio.Semaphore(max_concurrent_questions)
 
     async def bounded_tracked_generate(topic_cfg: dict, seq: int):
@@ -1320,6 +1483,9 @@ async def _run_pipeline_with_topics_impl(
         total_questions=total_questions,
         target_concurrent_users=TARGET_CONCURRENT_USERS,
         celery_generation_concurrency=CELERY_GENERATION_CONCURRENCY,
+        dynamic_concurrency=ENABLE_DYNAMIC_CONCURRENCY,
+        runtime_concurrent_traces=trace_payload.get("runtime_concurrent_traces"),
+        effective_question_concurrency=max_concurrent_questions,
         question_concurrency=max_concurrent_questions,
         llm_concurrency=MAX_CONCURRENT_LLM_REQUESTS,
     )
@@ -1374,6 +1540,10 @@ async def _run_pipeline_with_topics_impl(
         "mcqs": accepted,
         "target_concurrent_users": TARGET_CONCURRENT_USERS,
         "celery_generation_concurrency": CELERY_GENERATION_CONCURRENCY,
+        "dynamic_concurrency": ENABLE_DYNAMIC_CONCURRENCY,
+        "runtime_concurrent_traces": trace_payload.get("runtime_concurrent_traces"),
+        "runtime_concurrent_users": trace_payload.get("runtime_concurrent_users"),
+        "effective_question_concurrency": max_concurrent_questions,
         "question_concurrency": max_concurrent_questions,
         "llm_concurrency": MAX_CONCURRENT_LLM_REQUESTS,
         "vllm_url": VLLM_URL,

@@ -1,31 +1,45 @@
-version: "3.8"
 services:
-  langfuse-db:
-    image: postgres:15
-    restart: always
-    environment:
-      POSTGRES_DB: langfuse
-      POSTGRES_USER: langfuse
-      POSTGRES_PASSWORD: langfuse123
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.listen-address=0.0.0.0:9090"
+    ports:
+      - "${PROMETHEUS_PORT:-8084}:9090"
     volumes:
-      - langfuse_db:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
-  langfuse:
-    image: langfuse/langfuse:latest
-    restart: always
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
     depends_on:
-      - langfuse-db
+      - prometheus
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-8082}:3000"
     environment:
-      DATABASE_URL: postgresql://langfuse:langfuse123@langfuse-db:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: mcqgen-secret-key-2026
-      SALT: mcqgen-salt-2026
-      TELEMETRY_ENABLED: "false"
-      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin2026
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    ports:
+      - "${DCGM_EXPORTER_PORT:-9400}:9400"
 
 volumes:
-  langfuse_db:
+  prometheus_data:
+  grafana_data:

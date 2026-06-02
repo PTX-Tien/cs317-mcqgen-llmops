@@ -13,8 +13,14 @@ from api.core.config import settings
 from api.core.database import (
     engine,
     format_exam_display_name,
+    get_user_question_history,
     persist_generation_failure,
     persist_generation_success,
+)
+from api.core.load_tracking import (
+    finish_generation,
+    mark_generation_running,
+    touch_generation,
 )
 from monitoring.langfuse_tracing import (
     flush_langfuse,
@@ -95,12 +101,33 @@ def run_mcq_pipeline(
     trace_payload = trace_payload or {}
     task_id = trace_payload.get("task_id") or self.request.id
     session_id = trace_payload.get("session_id") or f"exam:{task_id}"
+    runtime_snapshot = mark_generation_running(task_id)
+    trace_payload.update(
+        {
+            "runtime_concurrent_users": runtime_snapshot.concurrent_users,
+            "runtime_concurrent_traces": runtime_snapshot.concurrent_traces,
+            "runtime_active_sessions": runtime_snapshot.active_sessions,
+            "runtime_traffic_mode": runtime_snapshot.traffic_mode,
+            "runtime_concurrency_bucket": runtime_snapshot.concurrency_bucket,
+        }
+    )
+    if trace_payload.get("user_id") and "previous_questions" not in trace_payload:
+        try:
+            with Session(engine) as session:
+                trace_payload["previous_questions"] = get_user_question_history(
+                    session,
+                    str(trace_payload["user_id"]),
+                    limit=settings.MCQGEN_DEDUP_HISTORY_LIMIT,
+                )
+        except Exception as exc:
+            print(f"[DEDUP_HISTORY_WARN] user={trace_payload.get('user_id')} error={exc!r}")
+            trace_payload["previous_questions"] = []
     total_questions = sum(int(t.get("n", 1)) for t in topics)
     trace_metadata = {
         **trace_payload,
         "task_id": task_id,
         "session_id": session_id,
-        "use_case": trace_payload.get("use_case") or "exam_generation",
+        "use_case": trace_payload.get("use_case") or "generate_exam",
         "output_name": output_name,
         "retrieval_mode": retrieval_mode,
         "n_questions": total_questions,
@@ -111,14 +138,16 @@ def run_mcq_pipeline(
         "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
         "total_llm_slots": (
-            settings.CELERY_GENERATION_CONCURRENCY
-            * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+            settings.VLLM_MAX_NUM_SEQS
+            if str(settings.MCQGEN_DYNAMIC_CONCURRENCY).strip().lower() in {"1", "true", "yes", "on"}
+            else settings.CELERY_GENERATION_CONCURRENCY * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
         ),
         "celery_queue_high": settings.CELERY_QUEUE_HIGH,
         "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
     }
 
     def publish_progress(progress: int, step: str, **meta):
+        touch_generation(task_id)
         payload = {
             "step": step,
             "progress": progress,
@@ -128,10 +157,27 @@ def run_mcq_pipeline(
         payload.update(meta)
         self.update_state(state="PROGRESS", meta=payload)
 
-    publish_progress(1, "Worker đã nhận job", current_question=0)
+    resource_progress = {
+        key: trace_metadata.get(key)
+        for key in (
+            "resource_status",
+            "resource_message",
+            "resource_queue_reason",
+            "resource_capacity_jobs",
+            "allocated_question_slots_at_start",
+            "expected_question_slots_when_running",
+            "resource_slots_total",
+            "dynamic_concurrency",
+            "runtime_concurrent_traces",
+            "runtime_concurrent_users",
+        )
+        if trace_metadata.get(key) is not None
+    }
+
+    publish_progress(1, "Worker đã nhận job", current_question=0, **resource_progress)
 
     async def _run():
-        publish_progress(5, "Đang nạp pipeline/RAG", current_question=0)
+        publish_progress(5, "Đang nạp pipeline/RAG", current_question=0, **resource_progress)
         from src.mcqgen.pipeline_mcq import run_pipeline_with_topics
 
         return await run_pipeline_with_topics(
@@ -146,7 +192,7 @@ def run_mcq_pipeline(
         with langfuse_attributes(
             user_id=trace_payload.get("user_id"),
             session_id=session_id,
-            tags=["mcqgen", "celery", "generation", "exam"],
+            tags=trace_payload.get("langfuse_tags") or ["app:mcqgen", "usecase:generate_exam"],
             metadata=trace_metadata,
             trace_name="mcqgen.generate_exam",
         ):
@@ -207,6 +253,7 @@ def run_mcq_pipeline(
         _persist_failure(task_id, exc)
         raise
     finally:
+        finish_generation(task_id)
         flush_langfuse()
 
     publish_progress(100, "done", current_question=total_questions)
@@ -247,12 +294,17 @@ def warmup_system(self):
 
     vllm_reply = asyncio.run(_warm_vllm())
 
-    tracing = {"enabled": os.getenv("ENABLE_TRACING", "0") == "1"}
+    tracing = {
+        "provider": "langfuse",
+        "enabled": os.getenv("ENABLE_LANGFUSE", "0") == "1",
+        "base_url": os.getenv("LANGFUSE_BASE_URL"),
+    }
     if tracing["enabled"]:
-        publish_progress(85, "Đang kiểm tra Phoenix")
+        publish_progress(85, "Đang kiểm tra Langfuse")
         from urllib.request import urlopen
 
-        health_url = os.getenv("PHOENIX_HEALTH_URL", "http://localhost:6006/healthz")
+        base_url = (os.getenv("LANGFUSE_BASE_URL") or "http://localhost:8083").rstrip("/")
+        health_url = f"{base_url}/api/public/health"
         with urlopen(health_url, timeout=2.0) as response:
             tracing["healthy"] = response.status < 400
             tracing["health_status"] = response.status

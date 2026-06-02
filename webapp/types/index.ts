@@ -138,15 +138,43 @@ export interface JobResponse {
   generation_concurrency?: number
   llm_concurrency?: number
   vllm_max_num_seqs?: number
+  total_llm_slots?: number
+  resource_status?: string
+  resource_queue_reason?: string
+  resource_message?: string
+  resource_capacity_jobs?: number
+  running_generation_jobs_at_start?: number
+  queued_generation_jobs_at_start?: number
+  will_queue_due_to_resources?: boolean
+  allocated_question_slots_at_start?: number
+  expected_question_slots_when_running?: number
+  resource_slots_total?: number
   n_questions: number
   retrieval_mode?: RetrievalMode
   message: string
 }
 
+export interface GenerationResourceInfo {
+  resourceStatus?: string
+  resourceQueueReason?: string
+  resourceMessage?: string
+  resourceCapacityJobs?: number
+  runningGenerationJobsAtStart?: number
+  queuedGenerationJobsAtStart?: number
+  willQueueDueToResources?: boolean
+  allocatedQuestionSlotsAtStart?: number
+  expectedQuestionSlotsWhenRunning?: number
+  resourceSlotsTotal?: number
+  dynamicConcurrency?: boolean
+  runtimeConcurrentTraces?: number
+  runtimeConcurrentUsers?: number
+  effectiveQuestionConcurrency?: number
+}
+
 export type GenerationState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; totalQ: number; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
-  | { status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number }
+  | ({ status: "queued"; position: number; estimatedWait: number; queueWait: number; estimatedRuntime: number; jobsAhead: number; taskId: string; totalQ: number; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number } & GenerationResourceInfo)
+  | ({ status: "running"; progress: number; step: string; currentQ: number; totalQ: number; taskId: string; questionConcurrency?: number; llmConcurrency?: number; vllmMaxNumSeqs?: number } & GenerationResourceInfo)
   | { status: "success"; mcqs: MCQ[]; elapsed: number; taskId: string; failed?: number; failures?: GenerationFailure[] }
   | { status: "failed"; error: string }

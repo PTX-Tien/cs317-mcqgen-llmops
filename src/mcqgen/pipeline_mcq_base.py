@@ -88,10 +88,6 @@ SYSTEM_PROMPT = """Bạn là giảng viên Trường ĐH Công nghệ Thông tin
 dạy môn CS116 – Lập trình Python cho Máy học.
 Bạn đang biên soạn câu hỏi trắc nghiệm cho sinh viên đại học."""
 
-# ── Phoenix Tracing ──────────────────────────────────────────────
-from monitoring.setup_tracing import init_tracing
-init_tracing(project_name='mcqgen')
-
 # ── Retrieval setup ───────────────────────────────────────────────
 print("Ready.\n")  # models loaded in advanced_retrieval.py
 

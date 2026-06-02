@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Eye, EyeOff, LogIn, Lock, User, ShieldCheck, UserPlus } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, LogIn, Lock, User, ShieldCheck, UserPlus } from "lucide-react";
 
 type Tab = "login" | "register";
 
@@ -18,11 +18,13 @@ export default function LoginPage() {
   const [loading, setLoading]         = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm]   = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   /* ── Login ── */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLoginError(null);
     try {
       const body = new URLSearchParams({ username: loginForm.username, password: loginForm.password });
       const { data } = await api.post("/auth/login", body, {
@@ -36,7 +38,9 @@ export default function LoginPage() {
       toast.success(`Chào mừng, ${data.full_name}!`);
       router.push("/dashboard");
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || "Đăng nhập thất bại");
+      const message = err?.response?.data?.detail || "Đăng nhập thất bại";
+      setLoginError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -170,7 +174,10 @@ export default function LoginPage() {
                     <input
                       type="text" placeholder="Tên đăng nhập"
                       value={loginForm.username}
-                      onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                      onChange={(e) => {
+                        setLoginError(null);
+                        setLoginForm({ ...loginForm, username: e.target.value });
+                      }}
                       required suppressHydrationWarning
                       className="w-full h-10 pl-8 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0B5CFF]/30 focus:border-[#0B5CFF] transition"
                     />
@@ -183,7 +190,10 @@ export default function LoginPage() {
                     <input
                       type={showPassword ? "text" : "password"} placeholder="••••••••"
                       value={loginForm.password}
-                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      onChange={(e) => {
+                        setLoginError(null);
+                        setLoginForm({ ...loginForm, password: e.target.value });
+                      }}
                       required suppressHydrationWarning
                       className="w-full h-10 pl-8 pr-9 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0B5CFF]/30 focus:border-[#0B5CFF] transition"
                     />
@@ -192,6 +202,12 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
+                {loginError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <span className="leading-relaxed">{loginError}</span>
+                  </div>
+                )}
                 <button type="submit" disabled={loading}
                   className="w-full h-10 rounded-xl bg-gradient-to-r from-[#0B5CFF] to-[#1E7FFF] hover:from-[#0a4de0] hover:to-[#1a6ee0] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 transition disabled:opacity-60 disabled:cursor-not-allowed"
                 >

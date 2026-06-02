@@ -9,7 +9,13 @@ import {
   chapterLabel,
 } from "@/lib/course";
 import { formatExamDisplayName } from "@/lib/exam-name";
-import { TopicConfig, MCQ, GenerationFailure, GenerationState } from "@/types";
+import {
+  TopicConfig,
+  MCQ,
+  GenerationFailure,
+  GenerationState,
+  GenerationResourceInfo,
+} from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,7 +62,7 @@ const PIPELINE_STEP_DESCRIPTIONS: Record<string, string> = {
 const DEFAULT_RETRIEVAL_MODE = "auto";
 const ACTIVE_GENERATION_KEY = "mcqgen.active_generation";
 
-interface ActiveGeneration {
+interface ActiveGeneration extends GenerationResourceInfo {
   taskId: string;
   examName: string;
   totalQ: number;
@@ -69,6 +75,39 @@ interface ActiveGeneration {
   questionConcurrency?: number;
   llmConcurrency?: number;
   vllmMaxNumSeqs?: number;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readBool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function resourceInfoFromApi(data: Record<string, unknown>): GenerationResourceInfo {
+  return {
+    resourceStatus: readString(data.resource_status),
+    resourceQueueReason: readString(data.resource_queue_reason),
+    resourceMessage: readString(data.resource_message),
+    resourceCapacityJobs: readNumber(data.resource_capacity_jobs),
+    runningGenerationJobsAtStart: readNumber(data.running_generation_jobs_at_start),
+    queuedGenerationJobsAtStart: readNumber(data.queued_generation_jobs_at_start),
+    willQueueDueToResources: readBool(data.will_queue_due_to_resources),
+    allocatedQuestionSlotsAtStart: readNumber(data.allocated_question_slots_at_start),
+    expectedQuestionSlotsWhenRunning: readNumber(data.expected_question_slots_when_running),
+    resourceSlotsTotal: readNumber(data.resource_slots_total),
+    dynamicConcurrency: readBool(data.dynamic_concurrency),
+    runtimeConcurrentTraces: readNumber(data.runtime_concurrent_traces),
+    runtimeConcurrentUsers: readNumber(data.runtime_concurrent_users),
+    effectiveQuestionConcurrency: readNumber(data.effective_question_concurrency),
+  };
 }
 
 function getApiErrorDetail(error: unknown): string | undefined {
@@ -669,6 +708,7 @@ export default function GeneratePage() {
       try {
         const { data } = await api.get(`/status/${taskId}`);
         if (data.state === "running") {
+          const resourceInfo = resourceInfoFromApi(data);
           setGenState({
             status: "running",
             progress: data.progress,
@@ -679,6 +719,7 @@ export default function GeneratePage() {
             questionConcurrency: data.question_concurrency,
             llmConcurrency: data.llm_concurrency,
             vllmMaxNumSeqs: data.vllm_max_num_seqs,
+            ...resourceInfo,
           });
         } else if (data.state === "success") {
           clearInterval(interval);
@@ -719,6 +760,7 @@ export default function GeneratePage() {
     ws.onmessage = async (e) => {
       const msg = JSON.parse(e.data);
       if (msg.state === "running") {
+        const resourceInfo = resourceInfoFromApi(msg);
         setGenState({
           status: "running",
           progress: msg.progress,
@@ -729,6 +771,7 @@ export default function GeneratePage() {
           questionConcurrency: msg.question_concurrency,
           llmConcurrency: msg.llm_concurrency,
           vllmMaxNumSeqs: msg.vllm_max_num_seqs,
+          ...resourceInfo,
         });
       } else if (msg.state === "success") {
         try {
@@ -776,10 +819,25 @@ export default function GeneratePage() {
           questionConcurrency: active.questionConcurrency,
           llmConcurrency: active.llmConcurrency,
           vllmMaxNumSeqs: active.vllmMaxNumSeqs,
+          resourceStatus: active.resourceStatus,
+          resourceQueueReason: active.resourceQueueReason,
+          resourceMessage: active.resourceMessage,
+          resourceCapacityJobs: active.resourceCapacityJobs,
+          runningGenerationJobsAtStart: active.runningGenerationJobsAtStart,
+          queuedGenerationJobsAtStart: active.queuedGenerationJobsAtStart,
+          willQueueDueToResources: active.willQueueDueToResources,
+          allocatedQuestionSlotsAtStart: active.allocatedQuestionSlotsAtStart,
+          expectedQuestionSlotsWhenRunning: active.expectedQuestionSlotsWhenRunning,
+          resourceSlotsTotal: active.resourceSlotsTotal,
+          dynamicConcurrency: active.dynamicConcurrency,
+          runtimeConcurrentTraces: active.runtimeConcurrentTraces,
+          runtimeConcurrentUsers: active.runtimeConcurrentUsers,
+          effectiveQuestionConcurrency: active.effectiveQuestionConcurrency,
         });
         startWebSocket(active.taskId, start, active.totalQ);
         toast.info("Đã nối lại job đang sinh câu hỏi");
       } else if (data.state === "running") {
+        const resourceInfo = resourceInfoFromApi(data);
         setExamName(formatExamDisplayName(active.examName));
         setGenState({
           status: "running",
@@ -791,6 +849,7 @@ export default function GeneratePage() {
           questionConcurrency: data.question_concurrency,
           llmConcurrency: data.llm_concurrency,
           vllmMaxNumSeqs: data.vllm_max_num_seqs,
+          ...resourceInfo,
         });
         startWebSocket(active.taskId, start, active.totalQ);
         toast.info("Đã nối lại job đang sinh câu hỏi");
@@ -839,9 +898,17 @@ export default function GeneratePage() {
         retrieval_mode: DEFAULT_RETRIEVAL_MODE,
       });
       taskIdRef.current = data.task_id;
+      const finalDisplayName = formatExamDisplayName(
+        data.display_name || displayExamName,
+      );
+      if (data.exam_name_was_deduplicated && finalDisplayName !== displayExamName) {
+        toast.info(`Tên đề đã tồn tại nên hệ thống lưu thành "${finalDisplayName}"`);
+      }
+      setExamName(finalDisplayName);
+      const resourceInfo = resourceInfoFromApi(data);
       saveActiveGeneration({
         taskId: data.task_id,
-        examName: displayExamName,
+        examName: finalDisplayName,
         totalQ: topicsToSubmit.reduce((sum, topic) => sum + topic.n, 0),
         startedAt,
         queuePosition: data.queue_position,
@@ -852,6 +919,7 @@ export default function GeneratePage() {
         questionConcurrency: data.generation_concurrency,
         llmConcurrency: data.llm_concurrency,
         vllmMaxNumSeqs: data.vllm_max_num_seqs,
+        ...resourceInfo,
       });
       setGenState({
         status: "queued",
@@ -865,10 +933,16 @@ export default function GeneratePage() {
         questionConcurrency: data.generation_concurrency,
         llmConcurrency: data.llm_concurrency,
         vllmMaxNumSeqs: data.vllm_max_num_seqs,
+        ...resourceInfo,
       });
-      toast.success(
-        `Đã gửi yêu cầu sinh câu hỏi. Vị trí #${data.queue_position}`,
-      );
+      const submitMessage =
+        resourceInfo.resourceMessage ||
+        `Đã gửi yêu cầu sinh câu hỏi. Vị trí #${data.queue_position}`;
+      if (resourceInfo.willQueueDueToResources) {
+        toast.info(submitMessage);
+      } else {
+        toast.success(submitMessage);
+      }
       startWebSocket(
         data.task_id,
         startedAt,
@@ -910,6 +984,19 @@ export default function GeneratePage() {
     genState.status === "queued" ||
     genState.status === "running" ||
     genState.status === "submitting";
+  const resourceState =
+    genState.status === "queued" || genState.status === "running"
+      ? genState
+      : null;
+  const displayedQuestionSlots =
+    resourceState?.effectiveQuestionConcurrency ??
+    resourceState?.expectedQuestionSlotsWhenRunning ??
+    resourceState?.allocatedQuestionSlotsAtStart;
+  const resourceStatusLabel = resourceState
+    ? resourceState.willQueueDueToResources
+      ? "Đang chờ tài nguyên"
+      : "Đã cấp tài nguyên"
+    : "";
 
   return (
     <div className="space-y-6">
@@ -1200,10 +1287,12 @@ export default function GeneratePage() {
                     <>
                       <div className="w-5 h-5 rounded-full border-2 border-slate-300 border-t-blue-500 animate-spin shrink-0" />
                       <span className="text-sm text-slate-600">
-                        Đang chờ trong queue — Vị trí #{genState.position}
-                        {genState.jobsAhead > 0
-                          ? `, ${genState.jobsAhead} job phía trước`
-                          : ""}
+                        {genState.resourceMessage ||
+                          `Đang chờ trong queue — Vị trí #${genState.position}${
+                            genState.jobsAhead > 0
+                              ? `, ${genState.jobsAhead} job phía trước`
+                              : ""
+                          }`}
                       </span>
                     </>
                   ) : (
@@ -1216,6 +1305,59 @@ export default function GeneratePage() {
                     </>
                   )}
                 </div>
+
+                {resourceState &&
+                  (resourceState.resourceMessage ||
+                    displayedQuestionSlots !== undefined ||
+                    resourceState.resourceSlotsTotal !== undefined) && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
+                      <div className="font-semibold text-blue-700">
+                        {resourceStatusLabel}
+                      </div>
+                      {resourceState.resourceMessage && (
+                        <p className="mt-1 leading-5 text-slate-600">
+                          {resourceState.resourceMessage}
+                        </p>
+                      )}
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {displayedQuestionSlots !== undefined && (
+                          <div>
+                            <div className="text-xs text-slate-500">
+                              Slot câu hỏi/job
+                            </div>
+                            <div className="font-semibold text-slate-800">
+                              {displayedQuestionSlots}
+                            </div>
+                          </div>
+                        )}
+                        {resourceState.resourceSlotsTotal !== undefined && (
+                          <div>
+                            <div className="text-xs text-slate-500">
+                              Tổng slot LLM
+                            </div>
+                            <div className="font-semibold text-slate-800">
+                              {resourceState.resourceSlotsTotal}
+                            </div>
+                          </div>
+                        )}
+                        {(resourceState.runningGenerationJobsAtStart !==
+                          undefined ||
+                          resourceState.queuedGenerationJobsAtStart !==
+                            undefined) && (
+                          <div>
+                            <div className="text-xs text-slate-500">
+                              Jobs chạy / chờ
+                            </div>
+                            <div className="font-semibold text-slate-800">
+                              {resourceState.runningGenerationJobsAtStart ?? 0}
+                              {" / "}
+                              {resourceState.queuedGenerationJobsAtStart ?? 0}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                 {/* ── Cancel button ── */}
                 {genState.status !== "submitting" && (

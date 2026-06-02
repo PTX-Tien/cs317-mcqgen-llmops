@@ -30,18 +30,21 @@ def _get_engine():
     return engine
 
 
-def _get_user_from_db(username: str) -> dict | None:
-    """Lấy user từ SQLite. Trả về None nếu không tồn tại hoặc bị inactive."""
+def _get_user_from_db(username: str, include_inactive: bool = False) -> dict | None:
+    """Lấy user từ SQLite. Mặc định trả về None nếu không tồn tại hoặc bị inactive."""
     from api.core.database import UserAccount
     with Session(_get_engine()) as s:
         user = s.get(UserAccount, username)
-        if user is None or not user.is_active:
+        if user is None:
+            return None
+        if not include_inactive and not user.is_active:
             return None
         return {
             "username":        user.username,
             "hashed_password": user.hashed_password,
             "role":            user.role,
             "full_name":       user.full_name,
+            "is_active":       user.is_active,
         }
 
 

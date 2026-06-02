@@ -5,6 +5,7 @@ import asyncio, json, math, sys, uuid
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -45,6 +46,12 @@ from api.core.cache import (
     get_cached_task_id,
     set_cached_task_id,
     cache_health,
+)
+from api.core.load_tracking import (
+    finish_generation,
+    load_metadata,
+    load_tags,
+    register_generation_start,
 )
 from api.core.session import (
     register_session,
@@ -105,6 +112,60 @@ Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
     include_in_schema=False,
 )
 
+PROXY_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-encoding",
+    "content-length",
+}
+
+
+async def proxy_to_upstream(request: Request, upstream_base: str, upstream_path: str) -> Response:
+    """Small public gateway proxy for services hidden behind blocked ports."""
+    path = "/" + upstream_path.lstrip("/")
+    url = httpx.URL(f"{upstream_base.rstrip('/')}{path}")
+    if request.url.query:
+        url = url.copy_with(query=request.url.query.encode("utf-8"))
+
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "host"
+    }
+    headers["X-Forwarded-Host"] = request.headers.get("host", "")
+    headers["X-Forwarded-Proto"] = request.url.scheme
+
+    body = await request.body()
+    try:
+        async with httpx.AsyncClient(timeout=PROXY_TIMEOUT, follow_redirects=False) as client:
+            upstream_response = await client.request(
+                request.method,
+                url,
+                content=body,
+                headers=headers,
+            )
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream unavailable: {upstream_base}") from exc
+
+    response_headers = {
+        key: value
+        for key, value in upstream_response.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS
+    }
+    return Response(
+        content=upstream_response.content,
+        status_code=upstream_response.status_code,
+        headers=response_headers,
+        media_type=upstream_response.headers.get("content-type"),
+    )
+
 # ── Schemas ───────────────────────────────────────────────────────
 class TopicConfig(BaseModel):
     topic_id:   str
@@ -157,14 +218,26 @@ CHAPTER_LABELS = {
     "ch11": "Chương 11: Triển khai mô hình",
 }
 
-def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") -> int:
+def _env_flag(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+def estimate_generation_minutes(
+    n_questions: int,
+    retrieval_mode: str = "auto",
+    active_generation_jobs: int = 1,
+) -> int:
     minutes_per_question = GENERATION_MIN_PER_QUESTION_BY_MODE.get(retrieval_mode, 8)
+    active_generation_jobs = max(1, active_generation_jobs)
+    dynamic_question_concurrency = max(1, settings.VLLM_MAX_NUM_SEQS // active_generation_jobs)
     effective_concurrency = max(
         1,
         min(
             settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
             settings.MCQGEN_LLM_MAX_CONCURRENCY,
             settings.VLLM_MAX_NUM_SEQS,
+            dynamic_question_concurrency
+            if _env_flag(settings.MCQGEN_DYNAMIC_CONCURRENCY)
+            else settings.VLLM_MAX_NUM_SEQS,
         ),
     )
     runtime = max(1, math.ceil((n_questions * minutes_per_question) / effective_concurrency))
@@ -172,8 +245,73 @@ def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") 
 
 def estimate_queue_wait_minutes(jobs_ahead: int) -> int:
     worker_slots = max(1, settings.CELERY_GENERATION_CONCURRENCY)
-    job_waves_ahead = math.ceil(max(0, jobs_ahead) / worker_slots)
+    job_waves_ahead = max(0, jobs_ahead) // worker_slots
     return job_waves_ahead * QUEUE_MIN_PER_JOB
+
+def configured_total_llm_slots() -> int:
+    if str(settings.MCQGEN_DYNAMIC_CONCURRENCY).strip().lower() in {"1", "true", "yes", "on"}:
+        return settings.VLLM_MAX_NUM_SEQS
+    return settings.CELERY_GENERATION_CONCURRENCY * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+
+def _question_slots_for_running_jobs(running_jobs: int) -> int:
+    running_jobs = max(1, running_jobs)
+    if _env_flag(settings.MCQGEN_DYNAMIC_CONCURRENCY):
+        dynamic_slots = max(1, settings.VLLM_MAX_NUM_SEQS // running_jobs)
+    else:
+        dynamic_slots = settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+    return max(
+        1,
+        min(
+            settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+            settings.MCQGEN_LLM_MAX_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+            dynamic_slots,
+        ),
+    )
+
+def build_resource_plan(queue: dict, load_snapshot) -> dict:
+    max_parallel_jobs = max(1, settings.CELERY_GENERATION_CONCURRENCY)
+    jobs_ahead = int(queue.get("total_jobs", 0))
+    active_jobs = int(queue.get("active_jobs", 0))
+    queued_jobs = int(queue.get("queued_jobs", 0))
+    will_queue = jobs_ahead >= max_parallel_jobs
+    projected_running_jobs = (
+        max_parallel_jobs
+        if will_queue
+        else max(1, min(max_parallel_jobs, active_jobs + 1))
+    )
+    immediate_slots = _question_slots_for_running_jobs(projected_running_jobs)
+    expected_slots_when_running = _question_slots_for_running_jobs(max_parallel_jobs)
+    resource_status = "queued_resource_limit" if will_queue else "allocated"
+    queue_reason = "resource_capacity" if will_queue else "available_capacity"
+    if will_queue:
+        resource_message = (
+            "Server đang dùng hết tài nguyên sinh đề. Yêu cầu của bạn đã được đưa vào hàng đợi "
+            f"và sẽ chạy khi có slot trống. Dự kiến khi chạy hệ thống cấp khoảng "
+            f"{expected_slots_when_running}/{settings.VLLM_MAX_NUM_SEQS} slot sinh câu hỏi."
+        )
+    else:
+        resource_message = (
+            "Hệ thống còn tài nguyên sinh đề. Yêu cầu sẽ được xử lý ngay "
+            f"với khoảng {immediate_slots}/{settings.VLLM_MAX_NUM_SEQS} slot sinh câu hỏi."
+        )
+    return {
+        "resource_status": resource_status,
+        "resource_queue_reason": queue_reason,
+        "resource_message": resource_message,
+        "resource_capacity_jobs": max_parallel_jobs,
+        "running_generation_jobs_at_start": active_jobs,
+        "queued_generation_jobs_at_start": queued_jobs,
+        "jobs_ahead_at_start": jobs_ahead,
+        "will_queue_due_to_resources": will_queue,
+        "resource_slots_total": configured_total_llm_slots(),
+        "allocated_question_slots_at_start": 0 if will_queue else immediate_slots,
+        "expected_question_slots_when_running": expected_slots_when_running if will_queue else immediate_slots,
+        "projected_running_jobs_for_slots": projected_running_jobs,
+        "resource_saturation": min(1.0, active_jobs / max_parallel_jobs),
+        "concurrent_users_at_start": load_snapshot.concurrent_users,
+        "concurrent_traces_at_start": load_snapshot.concurrent_traces,
+    }
 
 def _task_name(task: Any) -> str:
     if not isinstance(task, dict):
@@ -332,6 +470,24 @@ def _db_terminal_status_payload(task_id: str) -> Optional[dict]:
     return None
 
 
+def _resource_status_payload(meta: dict | None) -> dict:
+    meta = meta or {}
+    keys = (
+        "resource_status",
+        "resource_message",
+        "resource_queue_reason",
+        "resource_capacity_jobs",
+        "allocated_question_slots_at_start",
+        "expected_question_slots_when_running",
+        "resource_slots_total",
+        "dynamic_concurrency",
+        "runtime_concurrent_traces",
+        "runtime_concurrent_users",
+        "effective_question_concurrency",
+    )
+    return {key: meta.get(key) for key in keys if meta.get(key) is not None}
+
+
 def _json_loads(value: str | None, default: Any) -> Any:
     if not value:
         return default
@@ -432,6 +588,36 @@ def _build_ranked_stats(stats: dict[str, dict]) -> list[dict]:
         })
     return sorted(rows, key=lambda row: (row["wrong"], row["wrong_rate"]), reverse=True)
 
+
+def _same_exam_display_name(left: str, right: str) -> bool:
+    return format_exam_display_name(left).casefold() == format_exam_display_name(right).casefold()
+
+
+def _exam_display_name_exists(session: Session, username: str, display_name: str) -> bool:
+    return any(
+        _same_exam_display_name(exam.exam_name, display_name)
+        for exam in session.exec(select(Exam).where(Exam.created_by == username)).all()
+    )
+
+
+def _unique_exam_display_name(session: Session, username: str, display_name: str) -> str:
+    base_name = format_exam_display_name(display_name)
+    if not _exam_display_name_exists(session, username, base_name):
+        return base_name
+
+    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    candidate = f"{base_name} - {timestamp}"
+    if not _exam_display_name_exists(session, username, candidate):
+        return candidate
+
+    return f"{candidate} ({uuid.uuid4().hex[:6]})"
+
+
+def _timestamped_output_name(output_name: str, task_id: str) -> str:
+    base_name = (output_name or "exam").strip() or "exam"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{base_name}_{timestamp}_{task_id[:8]}"
+
 # ── Auth endpoints ────────────────────────────────────────────────
 @app.post("/auth/register", status_code=201)
 def register(req: RegisterRequest):
@@ -453,10 +639,29 @@ def register(req: RegisterRequest):
 @app.post("/auth/login", response_model=LoginResponse)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
     from api.core.auth import _get_user_from_db
-    user = _get_user_from_db(form_data.username)
-    if not user or not pwd_context.verify(form_data.password, user["hashed_password"]):
-        log.warning("login_failed", username=form_data.username)
-        raise HTTPException(status_code=401, detail="Sai username hoặc password")
+    username = (form_data.username or "").strip()
+    password = form_data.password or ""
+    if not username:
+        raise HTTPException(status_code=422, detail="Vui lòng nhập tên đăng nhập")
+    if not password:
+        raise HTTPException(status_code=422, detail="Vui lòng nhập mật khẩu")
+
+    user = _get_user_from_db(username, include_inactive=True)
+    if not user:
+        log.warning("login_failed_user_not_found", username=username)
+        raise HTTPException(
+            status_code=401,
+            detail="Tài khoản không tồn tại. Vui lòng kiểm tra tên đăng nhập.",
+        )
+    if not user.get("is_active", True):
+        log.warning("login_failed_inactive", username=username)
+        raise HTTPException(
+            status_code=403,
+            detail="Tài khoản đã bị vô hiệu hoá. Vui lòng liên hệ quản trị viên.",
+        )
+    if not pwd_context.verify(password, user["hashed_password"]):
+        log.warning("login_failed_bad_password", username=username)
+        raise HTTPException(status_code=401, detail="Mật khẩu không đúng. Vui lòng thử lại.")
 
     access_token = create_token(
         {"sub": user["username"], "role": user["role"]},
@@ -536,14 +741,15 @@ def health():
             "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
             "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
             "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
-            "total_llm_slots": (
-                settings.CELERY_GENERATION_CONCURRENCY
-                * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
-            ),
+            "total_llm_slots": configured_total_llm_slots(),
             "autotune": settings.MCQGEN_CONCURRENCY_AUTOTUNE,
+            "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
             "celery_queue_high": settings.CELERY_QUEUE_HIGH,
             "celery_queue_low": settings.CELERY_QUEUE_LOW,
             "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+            "app_env": settings.APP_ENV,
+            "trace_run_type": settings.TRACE_RUN_TYPE,
+            "load_test_id": settings.LOAD_TEST_ID,
         },
     }
 
@@ -568,10 +774,8 @@ def queue_status(user: dict = Depends(get_current_user)):
         "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
-        "total_llm_slots": (
-            settings.CELERY_GENERATION_CONCURRENCY
-            * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
-        ),
+        "total_llm_slots": configured_total_llm_slots(),
+        "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
     }
 
 @app.post("/admin/warmup")
@@ -596,31 +800,23 @@ def generate(
     topics = [t.model_dump() for t in req.topics]
     n_q    = sum(t["n"] for t in topics)
     retrieval_mode = req.retrieval_mode.lower()
-    display_name = format_exam_display_name(req.display_name or req.output_name)
+    requested_display_name = format_exam_display_name(req.display_name or req.output_name)
     if retrieval_mode not in {"fast", "auto", "quality"}:
         raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
-    existing_exam = next(
-        (
-            exam
-            for exam in session.exec(
-                select(Exam).where(Exam.created_by == user["username"])
-            ).all()
-            if format_exam_display_name(exam.exam_name).casefold() == display_name.casefold()
-        ),
-        None,
-    )
-    if existing_exam:
-        raise HTTPException(
-            status_code=409,
-            detail=f'Tên đề thi "{display_name}" đã tồn tại trong lịch sử. Vui lòng chọn tên khác hoặc xoá đề cũ trước.',
-        )
+    display_name = _unique_exam_display_name(session, user["username"], requested_display_name)
+    exam_name_was_deduplicated = display_name != requested_display_name
 
     # ── Cache dedup: kiểm tra xem config này đã được generate thành công chưa ──
     cached_task_id = get_cached_task_id(topics, retrieval_mode)
     if cached_task_id:
         cached_exam = session.exec(select(Exam).where(Exam.task_id == cached_task_id)).first()
-        if cached_exam and cached_exam.status == "success":
+        if (
+            cached_exam
+            and cached_exam.status == "success"
+            and cached_exam.created_by == user["username"]
+            and _same_exam_display_name(cached_exam.exam_name, display_name)
+        ):
             log.info(
                 "generation_cache_hit",
                 cached_task_id=cached_task_id,
@@ -641,16 +837,33 @@ def generate(
             }
 
     task_id = str(uuid.uuid4())
-    session_id = f"exam:{task_id}"
+    output_name = (
+        _timestamped_output_name(req.output_name, task_id)
+        if exam_name_was_deduplicated
+        else req.output_name
+    )
+    session_id = f"{user['username']}:exam:{task_id}"
+    use_case = "generate_exam"
+    load_snapshot = register_generation_start(
+        task_id=task_id,
+        user_id=user["username"],
+        session_id=session_id,
+        use_case=use_case,
+        output_name=output_name,
+    )
+    langfuse_tags = load_tags(use_case=use_case, snapshot=load_snapshot)
     trace_payload = {
         "task_id": task_id,
         "session_id": session_id,
-        "use_case": "exam_generation",
+        "use_case": use_case,
         "user_id": user["username"],
         "user_role": user.get("role"),
         "role": user.get("role"),
         "exam_name": display_name,
-        "output_name": req.output_name,
+        "requested_exam_name": requested_display_name,
+        "exam_name_was_deduplicated": exam_name_was_deduplicated,
+        "output_name": output_name,
+        "requested_output_name": req.output_name,
         "n_questions": n_q,
         "topic_count": len(topics),
         "retrieval_mode": retrieval_mode,
@@ -659,19 +872,25 @@ def generate(
         "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
-        "total_llm_slots": (
-            settings.CELERY_GENERATION_CONCURRENCY
-            * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
-        ),
+        "total_llm_slots": configured_total_llm_slots(),
+        "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+        "app_env": settings.APP_ENV,
+        "trace_run_type": settings.TRACE_RUN_TYPE,
+        "load_test_id": settings.LOAD_TEST_ID,
         "celery_queue_high": settings.CELERY_QUEUE_HIGH,
         "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+        "langfuse_tags": langfuse_tags,
+        **load_metadata(
+            load_snapshot,
+            target_concurrency=settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        ),
         "topics": topics,
     }
 
     with langfuse_attributes(
         user_id=user["username"],
         session_id=session_id,
-        tags=["mcqgen", "api", "generate", "exam"],
+        tags=langfuse_tags,
         metadata=trace_payload,
         trace_name="mcqgen.generate_exam",
     ):
@@ -679,8 +898,10 @@ def generate(
             "api.generate.submit",
             as_type="span",
             input={
-                "output_name": req.output_name,
+                "output_name": output_name,
+                "requested_output_name": req.output_name,
                 "display_name": display_name,
+                "requested_display_name": requested_display_name,
                 "retrieval_mode": retrieval_mode,
                 "topics": topics,
             },
@@ -689,6 +910,7 @@ def generate(
             queue = get_queue_snapshot()
             jobs_ahead = queue["total_jobs"]
             concurrency_at_submit = jobs_ahead + 1
+            resource_plan = build_resource_plan(queue, load_snapshot)
             trace_payload.update(
                 {
                     "active_jobs_at_submit": queue["active_jobs"],
@@ -700,16 +922,27 @@ def generate(
                         if concurrency_at_submit <= 1
                         else "concurrent_users"
                     ),
+                    **resource_plan,
                 }
             )
 
-            estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
-            queue_wait_min = estimate_queue_wait_minutes(jobs_ahead)
-            estimated_total_min = estimated_runtime_min + queue_wait_min
-            task = run_mcq_pipeline.apply_async(
-                args=[topics, req.output_name, retrieval_mode, trace_payload],
-                task_id=task_id,
+            estimated_runtime_min = estimate_generation_minutes(
+                n_q,
+                retrieval_mode,
+                active_generation_jobs=resource_plan["projected_running_jobs_for_slots"],
             )
+            queue_wait_min = estimate_queue_wait_minutes(jobs_ahead)
+            queue_wait_ms = queue_wait_min * 60 * 1000
+            estimated_total_min = estimated_runtime_min + queue_wait_min
+            trace_payload["queue_wait_ms"] = queue_wait_ms
+            try:
+                task = run_mcq_pipeline.apply_async(
+                    args=[topics, output_name, retrieval_mode, trace_payload],
+                    task_id=task_id,
+                )
+            except Exception:
+                finish_generation(task_id)
+                raise
 
             update_langfuse_observation(
                 lf_span,
@@ -721,6 +954,10 @@ def generate(
                     "estimated_total_min": estimated_total_min,
                     "concurrency_at_submit": concurrency_at_submit,
                     "load_scenario": trace_payload["load_scenario"],
+                    "resource_status": resource_plan["resource_status"],
+                    "resource_message": resource_plan["resource_message"],
+                    "allocated_question_slots_at_start": resource_plan["allocated_question_slots_at_start"],
+                    "expected_question_slots_when_running": resource_plan["expected_question_slots_when_running"],
                 },
                 metadata={
                     **trace_payload,
@@ -765,6 +1002,10 @@ def generate(
     return {
         "task_id":            task.id,
         "status":             "queued",
+        "display_name":       display_name,
+        "requested_display_name": requested_display_name,
+        "exam_name_was_deduplicated": exam_name_was_deduplicated,
+        "output_name":        output_name,
         "queue_position":     jobs_ahead + 1,
         "jobs_ahead":         jobs_ahead,
         "active_jobs":        queue["active_jobs"],
@@ -780,11 +1021,18 @@ def generate(
         "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency":    settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs":  settings.VLLM_MAX_NUM_SEQS,
-        "total_llm_slots": (
-            settings.CELERY_GENERATION_CONCURRENCY
-            * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
-        ),
-        "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
+        "total_llm_slots": configured_total_llm_slots(),
+        "resource_status":    resource_plan["resource_status"],
+        "resource_queue_reason": resource_plan["resource_queue_reason"],
+        "resource_message":   resource_plan["resource_message"],
+        "resource_capacity_jobs": resource_plan["resource_capacity_jobs"],
+        "running_generation_jobs_at_start": resource_plan["running_generation_jobs_at_start"],
+        "queued_generation_jobs_at_start": resource_plan["queued_generation_jobs_at_start"],
+        "will_queue_due_to_resources": resource_plan["will_queue_due_to_resources"],
+        "allocated_question_slots_at_start": resource_plan["allocated_question_slots_at_start"],
+        "expected_question_slots_when_running": resource_plan["expected_question_slots_when_running"],
+        "resource_slots_total": resource_plan["resource_slots_total"],
+        "message":            resource_plan["resource_message"],
     }
 
 @app.get("/status/{task_id}")
@@ -824,6 +1072,7 @@ def get_status(
             "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
             "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
             "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+            **_resource_status_payload(meta),
         }
     elif result.state == "SUCCESS":
         data = result.result or {}
@@ -842,6 +1091,7 @@ def get_status(
             "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
             "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
             "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+            **_resource_status_payload(data),
         }
         if data.get("type") == "warmup":
             payload.update({

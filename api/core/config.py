@@ -1,4 +1,5 @@
 import os
+import socket
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -9,6 +10,13 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 class Settings:
+    # App / tracing context
+    APP_ENV: str = os.getenv("APP_ENV") or os.getenv("ENV") or "prod"
+    TRACE_RUN_TYPE: str = os.getenv("TRACE_RUN_TYPE", "manual")
+    LOAD_TEST_ID: str = os.getenv("LOAD_TEST_ID", "")
+    SERVER_INSTANCE: str = os.getenv("SERVER_INSTANCE") or socket.gethostname()
+    REQUEST_SOURCE: str = os.getenv("REQUEST_SOURCE", "web")
+
     # Auth
     JWT_SECRET:  str = os.getenv("JWT_SECRET", "change-this")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
@@ -55,6 +63,17 @@ class Settings:
         MCQGEN_MAX_CONCURRENT_QUESTIONS,
     )
     MCQGEN_CONCURRENCY_AUTOTUNE: str = os.getenv("MCQGEN_CONCURRENCY_AUTOTUNE", "1")
+    MCQGEN_DYNAMIC_CONCURRENCY: str = os.getenv("MCQGEN_DYNAMIC_CONCURRENCY", "1")
+    MCQGEN_LOAD_TRACKING_TTL_SECONDS: int = _env_int(
+        "MCQGEN_LOAD_TRACKING_TTL_SECONDS",
+        6 * 3600,
+    )
+    MCQGEN_DEDUP_HISTORY_LIMIT: int = _env_int("MCQGEN_DEDUP_HISTORY_LIMIT", 500)
+    MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD: str = os.getenv(
+        "MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD",
+        "0.86",
+    )
+    MCQGEN_DEDUP_MIN_CHARS: int = _env_int("MCQGEN_DEDUP_MIN_CHARS", 32)
 
     # Celery queues
     CELERY_WORKER_NAMESPACE: str = os.getenv("CELERY_WORKER_NAMESPACE") or os.getenv("USER", "mcqgen")

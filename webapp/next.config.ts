@@ -12,8 +12,8 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: Array.from(new Set(configuredAllowedOrigins)),
   outputFileTracingRoot: path.resolve(__dirname),
 
-  // Proxy /api/* → FastAPI (port 8080) — không cần thay đổi Nginx hay mở port 8080 ra ngoài.
-  // Browser chỉ cần kết nối port 80; Next.js server-side forward request đến FastAPI.
+  // Proxy /api/* → FastAPI (port 8080). Browser chỉ cần kết nối UI port;
+  // Next.js server-side forward request đến FastAPI nội bộ.
   async rewrites() {
     return [
       {
