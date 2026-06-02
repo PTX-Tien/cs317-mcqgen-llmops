@@ -446,7 +446,8 @@ export default function AdminPage() {
                   { label: "API Docs",       path: ":8080/docs" },
                   { label: "Langfuse",       path: ":8083" },
                   { label: "Flower Queue",    path: ":5555" },
-                  { label: "Prometheus",      path: ":9090" },
+                  { label: "Grafana GPU",     path: ":8082" },
+                  { label: "Prometheus",      path: ":8084" },
                 ].map((link) => {
                   const href = typeof window !== "undefined"
                     ? `${window.location.protocol}//${window.location.hostname}${link.path}`

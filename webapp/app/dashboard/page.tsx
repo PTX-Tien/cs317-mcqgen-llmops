@@ -246,6 +246,15 @@ export default function DashboardPage() {
                 Flower Queue
               </Button>
             </a>
+            <a href={serviceUrl(":8082")} target="_blank" rel="noopener noreferrer">
+              <Button
+                variant="outline"
+                className="rounded-xl border-slate-200 gap-2 text-sm"
+              >
+                <Cpu className="h-4 w-4 text-cyan-500" />
+                Grafana GPU
+              </Button>
+            </a>
           </div>
         </CardContent>
       </Card>

@@ -13,6 +13,10 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_TRACING_ENABLED=true
 MCQGEN_LLM_STREAM_METRICS=1
+APP_ENV=prod
+TRACE_RUN_TYPE=manual
+LOAD_TEST_ID=
+MCQGEN_DYNAMIC_CONCURRENCY=1
 ```
 
 Khởi động hệ thống:
@@ -40,10 +44,22 @@ Các trace mới sau khi restart sẽ có đủ `session_id`, `user_id`, `use_ca
 Mỗi lần bấm generate đề, hệ thống tạo:
 
 - `trace_name`: `mcqgen.generate_exam`
-- `use_case`: `exam_generation`
-- `session_id`: `exam:<task_id>`
+- `use_case`: `generate_exam`
+- `session_id`: `<user_id>:exam:<task_id>`
 - `user_id`: username của user đang đăng nhập
-- `tags`: `mcqgen`, `api`, `celery`, `pipeline`, `generation`, `exam`
+- `tags`: `app:mcqgen`, `env:<env>`, `usecase:generate_exam`, `traffic:<single-user|multi-user>`, `ccu:<bucket>`, `run:<manual|loadtest>`
+
+Tag và metadata concurrency được tính bằng Redis tại thời điểm request bắt đầu, không suy luận từ latency:
+
+- `traffic:single-user` hoặc `traffic:multi-user`
+- `ccu:1`, `ccu:2-5`, `ccu:6-10`, `ccu:11-20`, `ccu:21-50`, `ccu:50+`
+- `concurrent_users_at_start`: số user khác nhau đang có generation job chưa kết thúc, tính cả request hiện tại.
+- `concurrent_traces_at_start`: số generation traces/jobs active, tính cả request hiện tại.
+- `active_sessions_at_start`: số session active, tính cả request hiện tại.
+- `traffic_mode`: `single-user` hoặc `multi-user`.
+- `concurrency_bucket`: bucket CCU chính xác hơn cho dashboard.
+- `target_concurrency`: mục tiêu cấu hình, ví dụ 3.
+- `server_instance`, `request_source`, `load_test_id`.
 
 Các observation chính trong một session:
 
@@ -114,9 +130,11 @@ Ví dụ:
 
 Trong Langfuse Dashboard/Metrics, nên filter chung:
 
-- Tags contains `mcqgen`
+- Tags contains `app:mcqgen`
+- Tags contains `usecase:generate_exam`
+- So sánh bằng `traffic:single-user` và `traffic:multi-user`
 - Trace name = `mcqgen.generate_exam`
-- Use case = `exam_generation`
+- Use case = `generate_exam`
 - Chọn đúng time window của bài test
 - Loại bỏ warmup run nếu có
 
@@ -199,10 +217,16 @@ Nên làm một warmup run nhỏ trước, sau đó không tính warmup vào das
 
 ### Cấu hình concurrency hiện tại
 
-Hệ thống dùng công thức:
+Ở profile tĩnh, hệ thống dùng công thức:
 
 ```text
 CELERY_GENERATION_CONCURRENCY * MCQGEN_MAX_CONCURRENT_QUESTIONS <= VLLM_MAX_NUM_SEQS
+```
+
+Ở profile dynamic, công thức được áp dụng tại từng job:
+
+```text
+effective_questions_per_job = floor(VLLM_MAX_NUM_SEQS / active_generation_jobs)
 ```
 
 Các biến chính:
@@ -213,6 +237,7 @@ Các biến chính:
 - `MCQGEN_LLM_MAX_CONCURRENCY`: số LLM request tối đa trong một job.
 - `VLLM_MAX_NUM_SEQS`: số request vLLM có thể xử lý đồng thời.
 - `MCQGEN_CONCURRENCY_AUTOTUNE=1`: tự tính `MCQGEN_MAX_CONCURRENT_QUESTIONS` và `MCQGEN_LLM_MAX_CONCURRENCY` theo `VLLM_MAX_NUM_SEQS / CELERY_GENERATION_CONCURRENCY`.
+- `MCQGEN_DYNAMIC_CONCURRENCY=1`: mỗi job tự nhận số slot theo số generation jobs active tại runtime.
 - `CELERY_QUEUE_ISOLATE_BY_USER=1`: tự tách queue theo user, ví dụ `mcq.thanhld.high`, để worker của thành viên khác không nhận job của mình.
 
 Profile mặc định hiện tại cho nhiều user:
@@ -221,14 +246,23 @@ Profile mặc định hiện tại cho nhiều user:
 MCQGEN_TARGET_CONCURRENT_USERS=3
 CELERY_GENERATION_CONCURRENCY=3
 MCQGEN_CONCURRENCY_AUTOTUNE=1
+MCQGEN_DYNAMIC_CONCURRENCY=1
 CELERY_QUEUE_ISOLATE_BY_USER=1
 VLLM_MAX_NUM_SEQS=4
 ```
 
-Với profile này, script tự chạy:
+Với dynamic concurrency, script cho phép tối đa 3 generation jobs chạy song song, nhưng pipeline tự chia slot theo tải:
 
 ```text
-3 jobs song song * 1 question/job = 3 LLM slots <= 4 vLLM seqs
+1 active job  -> 4 questions/job -> 1 user sinh nhanh hơn
+2 active jobs -> 2 questions/job mỗi job
+3 active jobs -> 1 question/job mỗi job
+```
+
+Giới hạn vẫn được giữ:
+
+```text
+effective_questions_per_job = floor(VLLM_MAX_NUM_SEQS / active_generation_jobs)
 ```
 
 Nếu muốn 1 job nhanh nhất:
@@ -237,6 +271,7 @@ Nếu muốn 1 job nhanh nhất:
 MCQGEN_TARGET_CONCURRENT_USERS=1 \
 CELERY_GENERATION_CONCURRENCY=1 \
 MCQGEN_CONCURRENCY_AUTOTUNE=1 \
+MCQGEN_DYNAMIC_CONCURRENCY=1 \
 bash scripts/start_system.sh --with-langfuse --no-vllm
 ```
 
@@ -252,6 +287,7 @@ Nếu muốn 2 user cân bằng:
 MCQGEN_TARGET_CONCURRENT_USERS=2 \
 CELERY_GENERATION_CONCURRENCY=2 \
 MCQGEN_CONCURRENCY_AUTOTUNE=1 \
+MCQGEN_DYNAMIC_CONCURRENCY=1 \
 bash scripts/start_system.sh --with-langfuse --no-vllm
 ```
 
@@ -265,6 +301,7 @@ Nếu muốn tự custom:
 
 ```bash
 MCQGEN_CONCURRENCY_AUTOTUNE=0 \
+MCQGEN_DYNAMIC_CONCURRENCY=0 \
 CELERY_GENERATION_CONCURRENCY=2 \
 MCQGEN_MAX_CONCURRENT_QUESTIONS=2 \
 MCQGEN_LLM_MAX_CONCURRENCY=2 \
@@ -301,8 +338,11 @@ loadtest_1user_20260602_01
 
 Trace metadata sẽ có:
 
-- `load_scenario = single_user`
-- `concurrency_at_submit = 1`, nếu queue đang trống
+- tag `traffic:single-user`
+- tag `ccu:1`
+- `traffic_mode = single-user`
+- `concurrent_users_at_start = 1`
+- `concurrent_traces_at_start = 1`, nếu không có job khác đang active
 - `queue_depth_at_submit = 0`
 
 ### Test B: 3 user đồng thời
@@ -323,13 +363,16 @@ loadtest_3user_c_20260602_01
 
 Trace metadata sẽ có:
 
-- `load_scenario = concurrent_users` nếu lúc submit đã có job khác trong queue/active.
-- `concurrency_at_submit`: số job đang active/queued cộng với job hiện tại.
+- tag `traffic:multi-user`, nếu tại thời điểm request có từ 2 user active trở lên.
+- tag `ccu:2-5` cho bài test 3 user.
+- `traffic_mode = multi-user`
+- `concurrent_users_at_start`: số user khác nhau đang có generation job active.
+- `concurrent_traces_at_start`: số generation jobs active.
 - `active_jobs_at_submit`
 - `queued_jobs_at_submit`
 - `queue_depth_at_submit`
 
-Nếu một user vẫn hiện `single_user`, nghĩa là lúc user đó submit thì hệ thống chưa thấy job khác active/queued. Khi test đồng thời, nên bấm 3 request sát nhau hơn hoặc tăng số câu để job đầu chưa kết thúc quá nhanh.
+Nếu một trace vẫn hiện `traffic:single-user`, nghĩa là tại thời điểm request đó bắt đầu, Redis chỉ thấy 1 user active. Khi test đồng thời, nên bấm 3 request sát nhau hơn hoặc tăng số câu để job đầu chưa kết thúc quá nhanh.
 
 ## 6. Cách đọc kết quả so sánh
 
@@ -397,6 +440,9 @@ Không nên gửi GPU sample mỗi giây cho mọi GPU vào Langfuse vì sẽ l�
 ## 8. Link docs Langfuse liên quan
 
 - Sessions: https://langfuse.com/docs/observability/features/sessions
+- Users: https://langfuse.com/docs/observability/features/users
+- Tags: https://langfuse.com/docs/observability/features/tags
+- Metadata: https://langfuse.com/docs/observability/features/metadata
 - Core data model: https://langfuse.com/docs/observability/data-model
 - Metrics overview: https://langfuse.com/docs/metrics/overview
 - Metrics API: https://langfuse.com/docs/metrics/features/metrics-api

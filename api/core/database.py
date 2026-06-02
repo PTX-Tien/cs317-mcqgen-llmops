@@ -267,6 +267,43 @@ def get_exam_mcqs(session: Session, exam: Exam) -> list[dict]:
     return [question_to_mcq(question) for question in questions]
 
 
+def get_user_question_history(
+    session: Session,
+    username: str,
+    limit: int = 500,
+) -> list[dict]:
+    """Return recent successful questions for per-user duplicate prevention."""
+    exams = session.exec(
+        select(Exam)
+        .where(Exam.created_by == username)
+        .where(Exam.status == "success")
+        .order_by(Exam.completed_at.desc(), Exam.created_at.desc())
+    ).all()
+
+    history: list[dict] = []
+    for exam in exams:
+        questions = session.exec(
+            select(Question)
+            .where(Question.exam_id == exam.id)
+            .order_by(Question.position, Question.question_id)
+        ).all()
+        for question in questions:
+            history.append(
+                {
+                    "question_id": question.question_id,
+                    "question_text": question.question_text,
+                    "topic": question.topic,
+                    "chapter_id": question.chapter_id,
+                    "exam_id": exam.id,
+                    "exam_name": format_exam_display_name(exam.exam_name),
+                    "created_at": exam.created_at.isoformat(),
+                }
+            )
+            if len(history) >= limit:
+                return history
+    return history
+
+
 def persist_generation_success(session: Session, task_id: str, result: dict) -> Optional[Exam]:
     exam = session.exec(select(Exam).where(Exam.task_id == task_id)).first()
     if not exam:
