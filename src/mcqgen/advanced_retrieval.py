@@ -382,6 +382,7 @@ async def adaptive_retrieve_sw(
     naive_threshold: float = 0.25,
     top_k_final: int = 5,
     mode: str = "auto",
+    opening_family: str | None = None,
 ) -> tuple[str, dict]:
     """
     Adaptive RAG + Sentence-Window:

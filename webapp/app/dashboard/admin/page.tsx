@@ -444,10 +444,9 @@ export default function AdminPage() {
               <CardContent className="space-y-1">
                 {[
                   { label: "API Docs",       path: ":8080/docs" },
-                  { label: "Phoenix Monitor", path: ":8082" },
+                  { label: "Langfuse",       path: ":8083" },
                   { label: "Flower Queue",    path: ":5555" },
                   { label: "Prometheus",      path: ":9090" },
-                  { label: "Grafana",         path: ":3001" },
                 ].map((link) => {
                   const href = typeof window !== "undefined"
                     ? `${window.location.protocol}//${window.location.hostname}${link.path}`

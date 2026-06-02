@@ -2,6 +2,7 @@
 tasks.py — Celery tasks cho MCQ generation pipeline
 """
 import sys, json, asyncio, os
+from collections import Counter
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -93,14 +94,28 @@ def run_mcq_pipeline(
     """Celery task: chạy MCQ pipeline async, update progress."""
     trace_payload = trace_payload or {}
     task_id = trace_payload.get("task_id") or self.request.id
+    session_id = trace_payload.get("session_id") or f"exam:{task_id}"
     total_questions = sum(int(t.get("n", 1)) for t in topics)
     trace_metadata = {
         **trace_payload,
         "task_id": task_id,
+        "session_id": session_id,
+        "use_case": trace_payload.get("use_case") or "exam_generation",
         "output_name": output_name,
         "retrieval_mode": retrieval_mode,
         "n_questions": total_questions,
         "topic_count": len(topics),
+        "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
+        "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+        "total_llm_slots": (
+            settings.CELERY_GENERATION_CONCURRENCY
+            * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+        ),
+        "celery_queue_high": settings.CELERY_QUEUE_HIGH,
+        "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
     }
 
     def publish_progress(progress: int, step: str, **meta):
@@ -124,14 +139,16 @@ def run_mcq_pipeline(
             output_name=output_name,
             progress_callback=publish_progress,
             retrieval_mode=retrieval_mode,
+            trace_payload=trace_metadata,
         )
 
     try:
         with langfuse_attributes(
             user_id=trace_payload.get("user_id"),
-            session_id=task_id,
-            tags=["mcqgen", "celery", "generation"],
+            session_id=session_id,
+            tags=["mcqgen", "celery", "generation", "exam"],
             metadata=trace_metadata,
+            trace_name="mcqgen.generate_exam",
         ):
             with langfuse_observation(
                 "celery.run_mcq_pipeline",
@@ -147,17 +164,35 @@ def run_mcq_pipeline(
                     )
                 accepted = int(result.get("accepted", 0)) if isinstance(result, dict) else 0
                 failed = int(result.get("failed", 0)) if isinstance(result, dict) else 0
+                failures = result.get("failures", []) if isinstance(result, dict) else []
+                failure_stage_counts = Counter(
+                    failure.get("stage", "unknown")
+                    for failure in failures
+                    if isinstance(failure, dict)
+                )
+                acceptance_rate = accepted / max(accepted + failed, 1)
                 update_langfuse_observation(
                     lf_span,
                     output={
                         "accepted": accepted,
                         "failed": failed,
+                        "acceptance_rate": acceptance_rate,
+                        "failure_stage_counts": dict(failure_stage_counts),
                         "output_file": result.get("output_file") if isinstance(result, dict) else None,
                     },
-                    metadata={**trace_metadata, "accepted": accepted, "failed": failed},
+                    metadata={
+                        **trace_metadata,
+                        "accepted": accepted,
+                        "failed": failed,
+                        "acceptance_rate": acceptance_rate,
+                        "failure_stage_counts": dict(failure_stage_counts),
+                    },
                 )
                 score_langfuse_trace("accepted_questions", float(accepted))
                 score_langfuse_trace("failed_questions", float(failed))
+                score_langfuse_trace("acceptance_rate", float(acceptance_rate))
+                for stage, count in failure_stage_counts.items():
+                    score_langfuse_trace(f"reject_stage.{stage}", float(count))
                 if isinstance(result, dict):
                     _persist_success(task_id, result)
                     # Cache task_id để dedup các request giống nhau trong tương lai
