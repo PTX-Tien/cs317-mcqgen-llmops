@@ -35,6 +35,8 @@ export default function DashboardPage() {
 
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
+  const isAdmin = user?.role === "admin";
+
   useEffect(() => {
     const token = localStorage.getItem("access_token");
 
@@ -96,61 +98,65 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* SYSTEM STATUS — flat row */}
-      <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <CardContent className="px-8 py-2">
-          <div className="grid grid-cols-4 divide-x divide-slate-100">
-            <div className="flex items-center gap-4 pr-8">
-              <div className="rounded-2xl bg-indigo-50 p-3 shrink-0">
-                <Activity className="h-6 w-6 text-indigo-500" />
+      {/* SYSTEM STATUS — chỉ hiển thị với admin */}
+      {isAdmin && (
+        <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <CardContent className="px-8 py-2">
+            <div className="grid grid-cols-4 divide-x divide-slate-100">
+              <div className="flex items-center gap-4 pr-8">
+                <div className="rounded-2xl bg-indigo-50 p-3 shrink-0">
+                  <Activity className="h-6 w-6 text-indigo-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-0.5">Queue</p>
+                  <p className="text-base font-bold text-emerald-500 flex items-center gap-1.5">
+                    {isQueueIdle ? "Ready" : `${pendingJobs} Jobs`}
+                    {isQueueIdle && (
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                    )}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-slate-400 mb-0.5">Queue</p>
-                <p className="text-base font-bold text-emerald-500 flex items-center gap-1.5">
-                  {isQueueIdle ? "Ready" : `${pendingJobs} Jobs`}
-                  {isQueueIdle && (
-                    <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                  )}
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-4 px-8">
-              <div className="rounded-2xl bg-violet-50 p-3 shrink-0">
-                <BrainCircuit className="h-6 w-6 text-violet-500" />
+              <div className="flex items-center gap-4 px-8">
+                <div className="rounded-2xl bg-violet-50 p-3 shrink-0">
+                  <BrainCircuit className="h-6 w-6 text-violet-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-0.5">LLM</p>
+                  <p className="text-base font-bold text-slate-800">
+                    Qwen2.5-7B
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-slate-400 mb-0.5">LLM</p>
-                <p className="text-base font-bold text-slate-800">Qwen2.5-7B</p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-4 px-8">
-              <div className="rounded-2xl bg-emerald-50 p-3 shrink-0">
-                <Sparkles className="h-6 w-6 text-emerald-500" />
+              <div className="flex items-center gap-4 px-8">
+                <div className="rounded-2xl bg-emerald-50 p-3 shrink-0">
+                  <Sparkles className="h-6 w-6 text-emerald-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-0.5">Retrieval</p>
+                  <p className="text-base font-bold text-slate-800">
+                    Adaptive RAG
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-slate-400 mb-0.5">Retrieval</p>
-                <p className="text-base font-bold text-slate-800">
-                  Adaptive RAG
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-4 pl-8">
-              <div className="rounded-2xl bg-cyan-50 p-3 shrink-0">
-                <Cpu className="h-6 w-6 text-cyan-500" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 mb-0.5">GPU</p>
-                <p className="text-base font-bold text-slate-800">
-                  RTX 2080 Ti 11GB
-                </p>
+              <div className="flex items-center gap-4 pl-8">
+                <div className="rounded-2xl bg-cyan-50 p-3 shrink-0">
+                  <Cpu className="h-6 w-6 text-cyan-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-0.5">GPU</p>
+                  <p className="text-base font-bold text-slate-800">
+                    RTX 2080 Ti 11GB
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* MIDDLE ROW */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -208,56 +214,73 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* BOTTOM ROW: System Overview + System Tools */}
-      {/* SYSTEM TOOLS */}
-      <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <CardContent className="px-8 py-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Wrench className="h-5 w-5 text-slate-500" />
-            <h3 className="text-base font-semibold text-slate-800">
-              System Tools
-            </h3>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <a href={serviceUrl(":8080/docs")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
+      {/* SYSTEM TOOLS — chỉ hiển thị với admin */}
+      {isAdmin && (
+        <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <CardContent className="px-8 py-2">
+            <div className="flex items-center gap-2 mb-3">
+              <Wrench className="h-5 w-5 text-slate-500" />
+              <h3 className="text-base font-semibold text-slate-800">
+                System Tools
+              </h3>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href={serviceUrl(":8080/docs")}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <BookOpen className="h-4 w-4 text-slate-500" />
-                API Docs
-              </Button>
-            </a>
-            <a href={serviceUrl(":8083")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-slate-200 gap-2 text-sm"
+                >
+                  <BookOpen className="h-4 w-4 text-slate-500" />
+                  API Docs
+                </Button>
+              </a>
+              <a
+                href={serviceUrl(":8083")}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <BarChart3 className="h-4 w-4 text-orange-500" />
-                Langfuse
-              </Button>
-            </a>
-            <a href={serviceUrl(":5555")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-slate-200 gap-2 text-sm"
+                >
+                  <BarChart3 className="h-4 w-4 text-orange-500" />
+                  Langfuse
+                </Button>
+              </a>
+              <a
+                href={serviceUrl(":5555")}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <BrainCircuit className="h-4 w-4 text-violet-500" />
-                Flower Queue
-              </Button>
-            </a>
-            <a href={serviceUrl(":8082")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-slate-200 gap-2 text-sm"
+                >
+                  <BrainCircuit className="h-4 w-4 text-violet-500" />
+                  Flower Queue
+                </Button>
+              </a>
+              <a
+                href={serviceUrl(":8082")}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <Cpu className="h-4 w-4 text-cyan-500" />
-                Grafana GPU
-              </Button>
-            </a>
-          </div>
-        </CardContent>
-      </Card>
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-slate-200 gap-2 text-sm"
+                >
+                  <Cpu className="h-4 w-4 text-cyan-500" />
+                  Grafana GPU
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

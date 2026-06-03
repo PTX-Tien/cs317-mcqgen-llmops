@@ -49,7 +49,7 @@ export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 export PYTHONNOUSERSITE=1
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/Thanhld/.cache/huggingface
+export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
 export HF_HUB_OFFLINE=0
 
 # ── GPU split ─────────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ Options:
   --with-monitoring / --no-monitoring
                 Bật/tắt Prometheus + Grafana + DCGM exporter
 Env vars chính:
-  START_VLLM=1          Giống --with-vllm
+  START_VLLM=0          Giống --with-vllm
   START_LANGFUSE=1      Khởi động Langfuse Docker Compose
   START_MONITORING=1    Khởi động Grafana/Prometheus cho GPU metrics
   MCQGEN_TARGET_CONCURRENT_USERS=3
@@ -197,6 +197,7 @@ Env vars chính:
                         Số generation jobs chạy song song trên queue high
   CELERY_QUEUE_ISOLATE_BY_USER=1
                         Tách queue theo user để tránh worker người khác nhận job
+
   API_PORT=8080         FastAPI port
   WEBAPP_PORT=8081      Next.js port
   LANGFUSE_PORT=8083    Langfuse web port
