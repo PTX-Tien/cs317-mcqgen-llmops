@@ -89,6 +89,8 @@ export default function AdminPage() {
   const [resetPwConfirm, setResetPwConfirm] = useState("");
   const [showPw, setShowPw]           = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [serviceOrigin, setServiceOrigin] = useState("");
+  const [serviceHostBase, setServiceHostBase] = useState("");
 
   const loadData = useCallback(async (quiet = false) => {
     const token = localStorage.getItem("access_token");
@@ -110,6 +112,13 @@ export default function AdminPage() {
       setRefreshing(false);
     }
   }, [router]);
+
+  useEffect(() => {
+    setServiceOrigin(window.location.origin);
+    setServiceHostBase(
+      `${window.location.protocol}//${window.location.hostname}`,
+    );
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -445,13 +454,12 @@ export default function AdminPage() {
                 {[
                   { label: "API Docs",       path: ":8080/docs" },
                   { label: "Langfuse",       path: ":8083" },
-                  { label: "Flower Queue",    path: ":5555" },
-                  { label: "Grafana GPU",     path: ":8082" },
-                  { label: "Prometheus",      path: ":8084" },
                 ].map((link) => {
-                  const href = typeof window !== "undefined"
-                    ? `${window.location.protocol}//${window.location.hostname}${link.path}`
-                    : "#";
+                  const href = !serviceOrigin || !serviceHostBase
+                    ? "#"
+                    : link.path.startsWith("/")
+                      ? `${serviceOrigin}${link.path}`
+                      : `${serviceHostBase}${link.path}`;
                   return (
                     <a key={link.label} href={href} target="_blank" rel="noopener noreferrer"
                       className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-slate-50 text-sm text-blue-500 hover:text-blue-600 transition-colors">

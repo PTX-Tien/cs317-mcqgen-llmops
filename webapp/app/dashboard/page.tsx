@@ -34,6 +34,8 @@ export default function DashboardPage() {
   const { user, setAuth } = useAuthStore();
 
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+  const [serviceOrigin, setServiceOrigin] = useState("");
+  const [serviceHostBase, setServiceHostBase] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -65,11 +67,21 @@ export default function DashboardPage() {
       .catch(() => {});
   }, [router, setAuth, user]);
 
+  useEffect(() => {
+    setServiceOrigin(window.location.origin);
+    setServiceHostBase(
+      `${window.location.protocol}//${window.location.hostname}`,
+    );
+  }, []);
+
   const pendingJobs = queueStatus?.pending_jobs ?? 0;
   const isQueueIdle = queueStatus?.status === "idle";
   const serviceUrl = (portPath: string) => {
-    if (typeof window === "undefined") return "#";
-    return `${window.location.protocol}//${window.location.hostname}${portPath}`;
+    if (!serviceOrigin || !serviceHostBase) return "#";
+    if (portPath.startsWith("/")) {
+      return `${serviceOrigin}${portPath}`;
+    }
+    return `${serviceHostBase}${portPath}`;
   };
 
   return (
@@ -235,24 +247,6 @@ export default function DashboardPage() {
               >
                 <BarChart3 className="h-4 w-4 text-orange-500" />
                 Langfuse
-              </Button>
-            </a>
-            <a href={serviceUrl(":5555")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
-              >
-                <BrainCircuit className="h-4 w-4 text-violet-500" />
-                Flower Queue
-              </Button>
-            </a>
-            <a href={serviceUrl(":8082")} target="_blank" rel="noopener noreferrer">
-              <Button
-                variant="outline"
-                className="rounded-xl border-slate-200 gap-2 text-sm"
-              >
-                <Cpu className="h-4 w-4 text-cyan-500" />
-                Grafana GPU
               </Button>
             </a>
           </div>

@@ -104,6 +104,12 @@ def format_exam_display_name(value: Optional[str]) -> str:
     if not raw:
         return "Đề thi"
 
+    raw = re.sub(
+        r"(?:\s+-\s+\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}(?:\s+\([0-9a-fA-F]{6}\))?)+$",
+        "",
+        raw,
+    ).strip()
+
     normalized = re.sub(r"[-\s]+", "_", raw).strip("_").lower()
     match = re.fullmatch(r"de_so_(\d+)", normalized)
     if match:

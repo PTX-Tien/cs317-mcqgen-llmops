@@ -15,13 +15,14 @@ from .common import (
     parse_json_output,
 )
 
-import asyncio, json, os, time, re, unicodedata
+import asyncio, json, os, time, re, unicodedata, uuid, random
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from openai import AsyncOpenAI
+import redis
 import chromadb
 from sentence_transformers import SentenceTransformer
 from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
@@ -78,12 +79,19 @@ MAX_CONCURRENT_LLM_REQUESTS = env_int(
     "MCQGEN_LLM_MAX_CONCURRENCY",
     MAX_CONCURRENT_QUESTIONS,
 )
-TARGET_CONCURRENT_USERS = env_int("MCQGEN_TARGET_CONCURRENT_USERS", 3)
-CELERY_GENERATION_CONCURRENCY = env_int(
-    "CELERY_GENERATION_CONCURRENCY",
-    TARGET_CONCURRENT_USERS,
-)
 VLLM_MAX_NUM_SEQS = env_int("VLLM_MAX_NUM_SEQS", 4)
+RESOURCE_MAX_RUNNING_JOBS = min(
+    VLLM_MAX_NUM_SEQS,
+    env_int("MCQGEN_RESOURCE_MAX_RUNNING_JOBS", VLLM_MAX_NUM_SEQS),
+)
+TARGET_CONCURRENT_USERS = env_int(
+    "MCQGEN_TARGET_CONCURRENT_USERS",
+    RESOURCE_MAX_RUNNING_JOBS,
+)
+CELERY_GENERATION_CONCURRENCY = min(
+    env_int("CELERY_GENERATION_CONCURRENCY", RESOURCE_MAX_RUNNING_JOBS),
+    RESOURCE_MAX_RUNNING_JOBS,
+)
 ENABLE_DYNAMIC_CONCURRENCY = env_bool("MCQGEN_DYNAMIC_CONCURRENCY", True)
 VLLM_TIMEOUT_SECONDS = env_float(
     "VLLM_TIMEOUT_SECONDS",
@@ -91,6 +99,17 @@ VLLM_TIMEOUT_SECONDS = env_float(
 )
 VLLM_MAX_RETRIES = env_int("VLLM_MAX_RETRIES", 1, minimum=0)
 ENABLE_LLM_STREAM_METRICS = env_bool("MCQGEN_LLM_STREAM_METRICS", True)
+ENABLE_GLOBAL_SLOT_GUARD = env_bool("MCQGEN_GLOBAL_SLOT_GUARD", True)
+GLOBAL_LLM_SLOTS = min(
+    VLLM_MAX_NUM_SEQS,
+    env_int("MCQGEN_GLOBAL_LLM_SLOTS", VLLM_MAX_NUM_SEQS),
+)
+GLOBAL_SLOT_TTL_SECONDS = env_int(
+    "MCQGEN_GLOBAL_SLOT_TTL_SECONDS",
+    max(600, int(VLLM_TIMEOUT_SECONDS * 6)),
+)
+REDIS_CACHE_URL = os.getenv("REDIS_CACHE_URL", "redis://localhost:6379/2")
+CELERY_QUEUE_NAMESPACE = os.getenv("CELERY_QUEUE_NAMESPACE") or os.getenv("USER", "mcqgen")
 DEDUP_SIMILARITY_THRESHOLD = env_float(
     "MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD",
     0.86,
@@ -99,6 +118,21 @@ DEDUP_SIMILARITY_THRESHOLD = env_float(
 DEDUP_MIN_CHARS = env_int("MCQGEN_DEDUP_MIN_CHARS", 32)
 _LLM_SEMAPHORES: dict[int, asyncio.Semaphore] = {}
 _LLM_CLIENTS: dict[int, AsyncOpenAI] = {}
+_SLOT_REDIS: redis.Redis | None = None
+_SLOT_WARNED = False
+_SLOT_KEY = "mcq:slots:{}:llm_questions".format(
+    re.sub(r"[^A-Za-z0-9_.:-]+", "_", CELERY_QUEUE_NAMESPACE or "mcqgen")
+)
+_ACQUIRE_SLOT_LUA = """
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local count = redis.call('ZCARD', KEYS[1])
+if count < tonumber(ARGV[2]) then
+  redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+  redis.call('EXPIRE', KEYS[1], ARGV[5])
+  return 1
+end
+return 0
+"""
 
 TOPICS = [
     # Thay "Missing Data" bằng các subtopic cụ thể
@@ -745,6 +779,70 @@ async def atimer(name: str, q_id: str):
     finally:
         dt = time.perf_counter() - t0
         print(f"[TIMING] {q_id} | {name} | {dt:.2f}s")
+
+
+def _global_slot_client() -> redis.Redis:
+    global _SLOT_REDIS
+    if _SLOT_REDIS is None:
+        _SLOT_REDIS = redis.from_url(
+            REDIS_CACHE_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+            retry_on_timeout=True,
+        )
+    return _SLOT_REDIS
+
+
+def _try_acquire_global_slot(token: str) -> bool:
+    now = time.time()
+    stale_before = now - GLOBAL_SLOT_TTL_SECONDS
+    return bool(
+        _global_slot_client().eval(
+            _ACQUIRE_SLOT_LUA,
+            1,
+            _SLOT_KEY,
+            stale_before,
+            GLOBAL_LLM_SLOTS,
+            now,
+            token,
+            GLOBAL_SLOT_TTL_SECONDS,
+        )
+    )
+
+
+def _release_global_slot(token: str) -> None:
+    _global_slot_client().zrem(_SLOT_KEY, token)
+
+
+@asynccontextmanager
+async def global_question_slot(q_id: str):
+    global _SLOT_WARNED
+    if not ENABLE_GLOBAL_SLOT_GUARD or GLOBAL_LLM_SLOTS <= 0:
+        yield
+        return
+
+    token = f"{os.getpid()}:{q_id}:{uuid.uuid4().hex}"
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                acquired = await asyncio.to_thread(_try_acquire_global_slot, token)
+            except Exception as exc:
+                if not _SLOT_WARNED:
+                    print(f"[RESOURCE_SLOT_WARN] disabled global slot guard: {exc!r}")
+                    _SLOT_WARNED = True
+                yield
+                return
+            if not acquired:
+                await asyncio.sleep(0.2 + random.random() * 0.3)
+        yield
+    finally:
+        if acquired:
+            try:
+                await asyncio.to_thread(_release_global_slot, token)
+            except Exception as exc:
+                print(f"[RESOURCE_SLOT_RELEASE_WARN] q_id={q_id} error={exc!r}")
 
 
 def effective_question_concurrency(total_questions: int, trace_payload: dict | None = None) -> int:
@@ -1474,7 +1572,9 @@ async def _run_pipeline_with_topics_impl(
 
     async def bounded_tracked_generate(topic_cfg: dict, seq: int):
         async with semaphore:
-            return await tracked_generate(topic_cfg, seq)
+            q_id = f"Q{seq:03d}"
+            async with global_question_slot(q_id):
+                return await tracked_generate(topic_cfg, seq)
 
     emit_progress(
         25,
@@ -1484,6 +1584,8 @@ async def _run_pipeline_with_topics_impl(
         target_concurrent_users=TARGET_CONCURRENT_USERS,
         celery_generation_concurrency=CELERY_GENERATION_CONCURRENCY,
         dynamic_concurrency=ENABLE_DYNAMIC_CONCURRENCY,
+        global_slot_guard=ENABLE_GLOBAL_SLOT_GUARD,
+        global_llm_slots=GLOBAL_LLM_SLOTS,
         runtime_concurrent_traces=trace_payload.get("runtime_concurrent_traces"),
         effective_question_concurrency=max_concurrent_questions,
         question_concurrency=max_concurrent_questions,
@@ -1539,8 +1641,11 @@ async def _run_pipeline_with_topics_impl(
         "output_file": str(out_file),
         "mcqs": accepted,
         "target_concurrent_users": TARGET_CONCURRENT_USERS,
+        "resource_capacity_jobs": RESOURCE_MAX_RUNNING_JOBS,
         "celery_generation_concurrency": CELERY_GENERATION_CONCURRENCY,
         "dynamic_concurrency": ENABLE_DYNAMIC_CONCURRENCY,
+        "global_slot_guard": ENABLE_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": GLOBAL_LLM_SLOTS,
         "runtime_concurrent_traces": trace_payload.get("runtime_concurrent_traces"),
         "runtime_concurrent_users": trace_payload.get("runtime_concurrent_users"),
         "effective_question_concurrency": max_concurrent_questions,

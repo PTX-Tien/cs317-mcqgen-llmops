@@ -17,7 +17,6 @@ from celery.result import AsyncResult
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from prometheus_fastapi_instrumentator import Instrumentator
 from sqlmodel import Session, select, func
 
 from api.tasks import celery_app, run_mcq_pipeline, warmup_system
@@ -105,11 +104,6 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-)
-Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
-    app,
-    endpoint="/metrics",
-    include_in_schema=False,
 )
 
 PROXY_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
@@ -253,6 +247,16 @@ def configured_total_llm_slots() -> int:
         return settings.VLLM_MAX_NUM_SEQS
     return settings.CELERY_GENERATION_CONCURRENCY * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
 
+def resource_capacity_jobs() -> int:
+    return max(
+        1,
+        min(
+            settings.MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
+            settings.CELERY_GENERATION_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+        ),
+    )
+
 def _question_slots_for_running_jobs(running_jobs: int) -> int:
     running_jobs = max(1, running_jobs)
     if _env_flag(settings.MCQGEN_DYNAMIC_CONCURRENCY):
@@ -270,11 +274,11 @@ def _question_slots_for_running_jobs(running_jobs: int) -> int:
     )
 
 def build_resource_plan(queue: dict, load_snapshot) -> dict:
-    max_parallel_jobs = max(1, settings.CELERY_GENERATION_CONCURRENCY)
+    max_parallel_jobs = resource_capacity_jobs()
     jobs_ahead = int(queue.get("total_jobs", 0))
     active_jobs = int(queue.get("active_jobs", 0))
     queued_jobs = int(queue.get("queued_jobs", 0))
-    will_queue = jobs_ahead >= max_parallel_jobs
+    will_queue = active_jobs >= max_parallel_jobs or jobs_ahead >= max_parallel_jobs
     projected_running_jobs = (
         max_parallel_jobs
         if will_queue
@@ -287,13 +291,16 @@ def build_resource_plan(queue: dict, load_snapshot) -> dict:
     if will_queue:
         resource_message = (
             "Server đang dùng hết tài nguyên sinh đề. Yêu cầu của bạn đã được đưa vào hàng đợi "
-            f"và sẽ chạy khi có slot trống. Dự kiến khi chạy hệ thống cấp khoảng "
-            f"{expected_slots_when_running}/{settings.VLLM_MAX_NUM_SEQS} slot sinh câu hỏi."
+            "và sẽ tự chạy khi có tài nguyên trống."
+        )
+    elif active_jobs > 0 or load_snapshot.concurrent_users > 1:
+        resource_message = (
+            "Yêu cầu sẽ được xử lý ngay. Hiện có nhiều job đang dùng hệ thống nên tài nguyên "
+            "sẽ được chia tự động để các đề cùng chạy ổn định."
         )
     else:
         resource_message = (
-            "Hệ thống còn tài nguyên sinh đề. Yêu cầu sẽ được xử lý ngay "
-            f"với khoảng {immediate_slots}/{settings.VLLM_MAX_NUM_SEQS} slot sinh câu hỏi."
+            "Yêu cầu sẽ được xử lý ngay. Hệ thống đang rảnh nên job này sẽ tự tận dụng tài nguyên hiện có."
         )
     return {
         "resource_status": resource_status,
@@ -421,6 +428,7 @@ def _db_result_payload(session: Session, exam: Exam, include_answers: bool = Fal
         "failures": summary["failures"],
         "mcqs": _mcqs_for_view(mcqs, include_answers),
         "include_answers": include_answers,
+        "resource_capacity_jobs": resource_capacity_jobs(),
         "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
         "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "question_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
@@ -453,6 +461,7 @@ def _db_terminal_status_payload(task_id: str) -> Optional[dict]:
                 "accepted": exam.accepted_questions or exam.n_questions,
                 "failed": exam.failed_questions,
                 "failures": summary["failures"],
+                "resource_capacity_jobs": resource_capacity_jobs(),
                 "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
                 "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
                 "question_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
@@ -600,23 +609,9 @@ def _exam_display_name_exists(session: Session, username: str, display_name: str
     )
 
 
-def _unique_exam_display_name(session: Session, username: str, display_name: str) -> str:
-    base_name = format_exam_display_name(display_name)
-    if not _exam_display_name_exists(session, username, base_name):
-        return base_name
-
-    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    candidate = f"{base_name} - {timestamp}"
-    if not _exam_display_name_exists(session, username, candidate):
-        return candidate
-
-    return f"{candidate} ({uuid.uuid4().hex[:6]})"
-
-
-def _timestamped_output_name(output_name: str, task_id: str) -> str:
+def _task_output_name(output_name: str, task_id: str) -> str:
     base_name = (output_name or "exam").strip() or "exam"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{base_name}_{timestamp}_{task_id[:8]}"
+    return f"{base_name}_{task_id[:8]}"
 
 # ── Auth endpoints ────────────────────────────────────────────────
 @app.post("/auth/register", status_code=201)
@@ -736,6 +731,7 @@ def health():
             "session": session_status,
         },
         "concurrency": {
+            "resource_capacity_jobs": resource_capacity_jobs(),
             "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
             "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
             "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
@@ -744,6 +740,8 @@ def health():
             "total_llm_slots": configured_total_llm_slots(),
             "autotune": settings.MCQGEN_CONCURRENCY_AUTOTUNE,
             "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+            "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+            "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
             "celery_queue_high": settings.CELERY_QUEUE_HIGH,
             "celery_queue_low": settings.CELERY_QUEUE_LOW,
             "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
@@ -769,6 +767,7 @@ def queue_status(user: dict = Depends(get_current_user)):
         "celery_queue_high": settings.CELERY_QUEUE_HIGH,
         "celery_queue_low": settings.CELERY_QUEUE_LOW,
         "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+        "resource_capacity_jobs": resource_capacity_jobs(),
         "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
         "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
@@ -776,6 +775,8 @@ def queue_status(user: dict = Depends(get_current_user)):
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
         "total_llm_slots": configured_total_llm_slots(),
         "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+        "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
     }
 
 @app.post("/admin/warmup")
@@ -804,8 +805,8 @@ def generate(
     if retrieval_mode not in {"fast", "auto", "quality"}:
         raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
-    display_name = _unique_exam_display_name(session, user["username"], requested_display_name)
-    exam_name_was_deduplicated = display_name != requested_display_name
+    display_name = requested_display_name
+    exam_name_was_deduplicated = False
 
     # ── Cache dedup: kiểm tra xem config này đã được generate thành công chưa ──
     cached_task_id = get_cached_task_id(topics, retrieval_mode)
@@ -837,11 +838,7 @@ def generate(
             }
 
     task_id = str(uuid.uuid4())
-    output_name = (
-        _timestamped_output_name(req.output_name, task_id)
-        if exam_name_was_deduplicated
-        else req.output_name
-    )
+    output_name = _task_output_name(req.output_name, task_id)
     session_id = f"{user['username']}:exam:{task_id}"
     use_case = "generate_exam"
     load_snapshot = register_generation_start(
@@ -867,6 +864,7 @@ def generate(
         "n_questions": n_q,
         "topic_count": len(topics),
         "retrieval_mode": retrieval_mode,
+        "resource_capacity_jobs": resource_capacity_jobs(),
         "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
         "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
@@ -874,6 +872,8 @@ def generate(
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
         "total_llm_slots": configured_total_llm_slots(),
         "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+        "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
         "app_env": settings.APP_ENV,
         "trace_run_type": settings.TRACE_RUN_TYPE,
         "load_test_id": settings.LOAD_TEST_ID,
@@ -1086,6 +1086,7 @@ def get_status(
             "accepted": data.get("accepted", 0),
             "failed":   data.get("failed", 0),
             "failures": data.get("failures", []),
+            "resource_capacity_jobs": resource_capacity_jobs(),
             "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
             "celery_generation_concurrency": data.get("celery_generation_concurrency", settings.CELERY_GENERATION_CONCURRENCY),
             "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
@@ -1452,10 +1453,12 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "current_question": meta.get("current_question", 0),
                     "total_questions":  meta.get("total_questions", 0),
                     "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+                    "resource_capacity_jobs": resource_capacity_jobs(),
                     "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
                     "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
                     "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
                     "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+                    **_resource_status_payload(meta),
                 })
             elif result.state == "SUCCESS":
                 data = result.result or {}
@@ -1471,11 +1474,13 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "accepted": data.get("accepted", 0),
                     "failed":   data.get("failed", 0),
                     "failures": data.get("failures", []),
+                    "resource_capacity_jobs": resource_capacity_jobs(),
                     "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
                     "celery_generation_concurrency": data.get("celery_generation_concurrency", settings.CELERY_GENERATION_CONCURRENCY),
                     "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
                     "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
                     "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+                    **_resource_status_payload(data),
                 })
                 break
             elif result.state == "FAILURE":

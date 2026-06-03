@@ -30,6 +30,7 @@ PROPAGATED_METADATA_KEYS = {
     "active_jobs_at_submit",
     "queued_jobs_at_submit",
     "queue_depth_at_submit",
+    "resource_capacity_jobs",
     "target_concurrent_users",
     "celery_generation_concurrency",
     "question_concurrency_per_job",
@@ -56,6 +57,8 @@ PROPAGATED_METADATA_KEYS = {
     "runtime_concurrency_bucket",
     "effective_question_concurrency",
     "dynamic_concurrency",
+    "global_slot_guard",
+    "global_llm_slots",
 }
 
 

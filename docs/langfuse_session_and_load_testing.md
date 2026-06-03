@@ -231,32 +231,39 @@ effective_questions_per_job = floor(VLLM_MAX_NUM_SEQS / active_generation_jobs)
 
 Các biến chính:
 
-- `MCQGEN_TARGET_CONCURRENT_USERS`: số user/job generate muốn phục vụ song song.
+- `MCQGEN_RESOURCE_MAX_RUNNING_JOBS`: số generation job tối đa được chạy song song theo tài nguyên vLLM.
+- `MCQGEN_TARGET_CONCURRENT_USERS`: nhãn mục tiêu cho tracing/load-test; không còn là hard limit.
 - `CELERY_GENERATION_CONCURRENCY`: số generation job chạy đồng thời ở worker-high.
 - `MCQGEN_MAX_CONCURRENT_QUESTIONS`: số câu hỏi sinh song song trong một job.
 - `MCQGEN_LLM_MAX_CONCURRENCY`: số LLM request tối đa trong một job.
 - `VLLM_MAX_NUM_SEQS`: số request vLLM có thể xử lý đồng thời.
 - `MCQGEN_CONCURRENCY_AUTOTUNE=1`: tự tính `MCQGEN_MAX_CONCURRENT_QUESTIONS` và `MCQGEN_LLM_MAX_CONCURRENCY` theo `VLLM_MAX_NUM_SEQS / CELERY_GENERATION_CONCURRENCY`.
 - `MCQGEN_DYNAMIC_CONCURRENCY=1`: mỗi job tự nhận số slot theo số generation jobs active tại runtime.
+- `MCQGEN_GLOBAL_SLOT_GUARD=1`: dùng Redis để giới hạn tổng số câu hỏi đang dùng LLM trên mọi worker, tránh vượt `VLLM_MAX_NUM_SEQS`.
 - `CELERY_QUEUE_ISOLATE_BY_USER=1`: tự tách queue theo user, ví dụ `mcq.thanhld.high`, để worker của thành viên khác không nhận job của mình.
 
 Profile mặc định hiện tại cho nhiều user:
 
 ```bash
-MCQGEN_TARGET_CONCURRENT_USERS=3
-CELERY_GENERATION_CONCURRENCY=3
+MCQGEN_RESOURCE_MAX_RUNNING_JOBS=4
+MCQGEN_TARGET_CONCURRENT_USERS=4
+CELERY_GENERATION_CONCURRENCY=4
 MCQGEN_CONCURRENCY_AUTOTUNE=1
 MCQGEN_DYNAMIC_CONCURRENCY=1
+MCQGEN_GLOBAL_SLOT_GUARD=1
+MCQGEN_GLOBAL_LLM_SLOTS=4
 CELERY_QUEUE_ISOLATE_BY_USER=1
 VLLM_MAX_NUM_SEQS=4
 ```
 
-Với dynamic concurrency, script cho phép tối đa 3 generation jobs chạy song song, nhưng pipeline tự chia slot theo tải:
+Với dynamic concurrency, script cho phép tối đa số generation jobs bằng capacity tài nguyên, nhưng pipeline tự chia slot theo tải:
 
 ```text
 1 active job  -> 4 questions/job -> 1 user sinh nhanh hơn
 2 active jobs -> 2 questions/job mỗi job
 3 active jobs -> 1 question/job mỗi job
+4 active jobs -> 1 question/job mỗi job
+5+ jobs      -> các job vượt capacity vào hàng đợi
 ```
 
 Giới hạn vẫn được giữ:
@@ -269,6 +276,7 @@ Nếu muốn 1 job nhanh nhất:
 
 ```bash
 MCQGEN_TARGET_CONCURRENT_USERS=1 \
+MCQGEN_RESOURCE_MAX_RUNNING_JOBS=1 \
 CELERY_GENERATION_CONCURRENCY=1 \
 MCQGEN_CONCURRENCY_AUTOTUNE=1 \
 MCQGEN_DYNAMIC_CONCURRENCY=1 \
@@ -285,6 +293,7 @@ Nếu muốn 2 user cân bằng:
 
 ```bash
 MCQGEN_TARGET_CONCURRENT_USERS=2 \
+MCQGEN_RESOURCE_MAX_RUNNING_JOBS=2 \
 CELERY_GENERATION_CONCURRENCY=2 \
 MCQGEN_CONCURRENCY_AUTOTUNE=1 \
 MCQGEN_DYNAMIC_CONCURRENCY=1 \
@@ -419,7 +428,7 @@ Langfuse phù hợp để trace LLM application:
 - user/session/use case
 - scores và reject reason
 
-GPU utilization là hạ tầng runtime. Cách tốt nhất là dùng Prometheus/Grafana với DCGM exporter hoặc nvidia-smi exporter, rồi đối chiếu thời gian với `session_id`/`task_id` trong Langfuse.
+GPU utilization là hạ tầng runtime. Sau khi bỏ stack dashboard metrics, cách phù hợp trong repo này là ghi snapshot tần suất thấp vào Langfuse cho từng job cần phân tích, hoặc kiểm tra thủ công bằng `nvidia-smi` khi chạy load test.
 
 Nếu vẫn muốn đưa GPU vào Langfuse, nên trace dạng snapshot tần suất thấp:
 
@@ -435,7 +444,7 @@ Nếu vẫn muốn đưa GPU vào Langfuse, nên trace dạng snapshot tần su�
   - `gpu_util_percent`
   - `gpu_memory_percent`
 
-Không nên gửi GPU sample mỗi giây cho mọi GPU vào Langfuse vì sẽ làm trace rất nhiễu và tăng lượng dữ liệu lớn. Nếu cần dashboard GPU realtime, dùng Grafana; nếu cần giải thích một job cụ thể chậm vì GPU nghẽn, gửi vài snapshot vào Langfuse là hợp lý.
+Không nên gửi GPU sample mỗi giây cho mọi GPU vào Langfuse vì sẽ làm trace rất nhiễu và tăng lượng dữ liệu lớn. Nếu cần giải thích một job cụ thể chậm vì GPU nghẽn, gửi vài snapshot vào Langfuse là hợp lý.
 
 ## 8. Link docs Langfuse liên quan
 

@@ -245,6 +245,7 @@ def load_metadata(snapshot: LoadSnapshot, *, target_concurrency: int | None = No
         "concurrency_bucket": snapshot.concurrency_bucket,
         "load_test_id": settings.LOAD_TEST_ID or None,
         "target_concurrency": target_concurrency or settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "resource_capacity_jobs": settings.MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
         "server_instance": settings.SERVER_INSTANCE,
         "request_source": settings.REQUEST_SOURCE,
     }

@@ -71,10 +71,17 @@ export VLLM_URL=${VLLM_URL:-http://localhost:${VLLM_PORT}/v1}
 export VLLM_MODEL=mcqgen
 
 # ── MCQ concurrency ───────────────────────────────────────────────────────────
-# Balanced default: let multiple users run jobs at once while keeping
-# CELERY_GENERATION_CONCURRENCY * MCQGEN_MAX_CONCURRENT_QUESTIONS <= VLLM_MAX_NUM_SEQS.
-export MCQGEN_TARGET_CONCURRENT_USERS=$(positive_int_or_default "${MCQGEN_TARGET_CONCURRENT_USERS:-3}" 3)
-export CELERY_GENERATION_CONCURRENCY=$(positive_int_or_default "${CELERY_GENERATION_CONCURRENCY:-$MCQGEN_TARGET_CONCURRENT_USERS}" "$MCQGEN_TARGET_CONCURRENT_USERS")
+# Resource-driven default: each running generation job needs at least one vLLM
+# sequence slot. A single job can use all slots; multiple jobs share them.
+export MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$(positive_int_or_default "${MCQGEN_RESOURCE_MAX_RUNNING_JOBS:-$VLLM_MAX_NUM_SEQS}" "$VLLM_MAX_NUM_SEQS")
+if [ "$MCQGEN_RESOURCE_MAX_RUNNING_JOBS" -gt "$VLLM_MAX_NUM_SEQS" ]; then
+    export MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$VLLM_MAX_NUM_SEQS
+fi
+export MCQGEN_TARGET_CONCURRENT_USERS=$(positive_int_or_default "${MCQGEN_TARGET_CONCURRENT_USERS:-$MCQGEN_RESOURCE_MAX_RUNNING_JOBS}" "$MCQGEN_RESOURCE_MAX_RUNNING_JOBS")
+export CELERY_GENERATION_CONCURRENCY=$(positive_int_or_default "${CELERY_GENERATION_CONCURRENCY:-$MCQGEN_RESOURCE_MAX_RUNNING_JOBS}" "$MCQGEN_RESOURCE_MAX_RUNNING_JOBS")
+if [ "$CELERY_GENERATION_CONCURRENCY" -gt "$MCQGEN_RESOURCE_MAX_RUNNING_JOBS" ]; then
+    export CELERY_GENERATION_CONCURRENCY=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
+fi
 export CELERY_LOW_CONCURRENCY=$(positive_int_or_default "${CELERY_LOW_CONCURRENCY:-1}" 1)
 export MCQGEN_CONCURRENCY_AUTOTUNE=${MCQGEN_CONCURRENCY_AUTOTUNE:-1}
 export MCQGEN_DYNAMIC_CONCURRENCY=${MCQGEN_DYNAMIC_CONCURRENCY:-1}
@@ -92,6 +99,11 @@ else
     export MCQGEN_LLM_MAX_CONCURRENCY=$(positive_int_or_default "${MCQGEN_LLM_MAX_CONCURRENCY:-$MCQGEN_MAX_CONCURRENT_QUESTIONS}" "$MCQGEN_MAX_CONCURRENT_QUESTIONS")
 fi
 export MCQGEN_LLM_STREAM_METRICS=${MCQGEN_LLM_STREAM_METRICS:-1}
+export MCQGEN_GLOBAL_SLOT_GUARD=${MCQGEN_GLOBAL_SLOT_GUARD:-1}
+export MCQGEN_GLOBAL_LLM_SLOTS=$(positive_int_or_default "${MCQGEN_GLOBAL_LLM_SLOTS:-$VLLM_MAX_NUM_SEQS}" "$VLLM_MAX_NUM_SEQS")
+if [ "$MCQGEN_GLOBAL_LLM_SLOTS" -gt "$VLLM_MAX_NUM_SEQS" ]; then
+    export MCQGEN_GLOBAL_LLM_SLOTS=$VLLM_MAX_NUM_SEQS
+fi
 if truthy_value "$MCQGEN_DYNAMIC_CONCURRENCY"; then
     TOTAL_LLM_SLOTS=$VLLM_MAX_NUM_SEQS
 else
@@ -110,12 +122,6 @@ export API_PORT=${API_PORT:-8080}
 export WEBAPP_PORT=${WEBAPP_PORT:-8081}
 export START_LANGFUSE=${START_LANGFUSE:-1}
 export LANGFUSE_PORT=${LANGFUSE_PORT:-8083}
-export START_MONITORING=${START_MONITORING:-1}
-export GRAFANA_PORT=${GRAFANA_PORT:-8082}
-export PROMETHEUS_PORT=${PROMETHEUS_PORT:-8084}
-export START_DCGM_EXPORTER=${START_DCGM_EXPORTER:-1}
-export DCGM_EXPORTER_PORT=${DCGM_EXPORTER_PORT:-9400}
-export MCQGEN_MONITORING_PROJECT=${MCQGEN_MONITORING_PROJECT:-mcqgen-monitoring}
 export ENABLE_LANGFUSE=${ENABLE_LANGFUSE:-0}
 export LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://localhost:${LANGFUSE_PORT}}
 export LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -124,7 +130,6 @@ export LANGFUSE_TRACING_ENABLED=${LANGFUSE_TRACING_ENABLED:-true}
 export LANGFUSE_MAX_IO_CHARS=${LANGFUSE_MAX_IO_CHARS:-12000}
 export WEBAPP_WAIT_SECONDS=${WEBAPP_WAIT_SECONDS:-30}
 export LANGFUSE_WAIT_SECONDS=${LANGFUSE_WAIT_SECONDS:-120}
-export GRAFANA_WAIT_SECONDS=${GRAFANA_WAIT_SECONDS:-60}
 
 # ── Redis — DB phân tách theo concern ─────────────────────────────────────────
 export REDIS_PORT=${REDIS_PORT:-6379}
@@ -181,28 +186,26 @@ Options:
   --no-vllm     Bỏ qua vLLM (dùng khi vLLM đã chạy hoặc chỉ dev UI)
   --with-langfuse / --no-langfuse
                 Bật/tắt Langfuse self-host (port $LANGFUSE_PORT)
-  --with-monitoring / --no-monitoring
-                Bật/tắt Prometheus + Grafana + DCGM exporter
 Env vars chính:
   START_VLLM=1          Giống --with-vllm
   START_LANGFUSE=1      Khởi động Langfuse Docker Compose
-  START_MONITORING=1    Khởi động Grafana/Prometheus cho GPU metrics
-  MCQGEN_TARGET_CONCURRENT_USERS=3
-                        Số generation jobs/user muốn chạy song song
+  MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$VLLM_MAX_NUM_SEQS
+                        Số generation jobs tối đa chạy song song theo slot vLLM
+  MCQGEN_TARGET_CONCURRENT_USERS=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
+                        Nhãn mục tiêu cho tracing/load-test, không phải hard limit
   MCQGEN_CONCURRENCY_AUTOTUNE=1
                         Tự tính questions/job theo VLLM_MAX_NUM_SEQS
   MCQGEN_DYNAMIC_CONCURRENCY=1
                         Tự chia slot/job theo số generation jobs đang active
-  CELERY_GENERATION_CONCURRENCY=3
+  MCQGEN_GLOBAL_SLOT_GUARD=1
+                        Giới hạn tổng câu hỏi đang dùng LLM trên mọi worker theo Redis
+  CELERY_GENERATION_CONCURRENCY=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
                         Số generation jobs chạy song song trên queue high
   CELERY_QUEUE_ISOLATE_BY_USER=1
                         Tách queue theo user để tránh worker người khác nhận job
   API_PORT=8080         FastAPI port
   WEBAPP_PORT=8081      Next.js port
   LANGFUSE_PORT=8083    Langfuse web port
-  GRAFANA_PORT=8082     Grafana port
-  PROMETHEUS_PORT=8084  Prometheus port
-  START_DCGM_EXPORTER=1 Khởi động DCGM exporter để lấy GPU metrics
   ADMIN_PASSWORD=...    Mật khẩu admin (auto-tạo lần đầu)
 EOF
 }
@@ -220,8 +223,6 @@ for arg in "$@"; do
         --no-vllm|--skip-vllm)    export START_VLLM=0 ;;
         --with-langfuse|--start-langfuse) export START_LANGFUSE=1 ;;
         --no-langfuse|--skip-langfuse)    export START_LANGFUSE=0 ;;
-        --with-monitoring|--start-monitoring) export START_MONITORING=1 ;;
-        --no-monitoring|--skip-monitoring)    export START_MONITORING=0 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $arg" >&2; usage; exit 2 ;;
     esac
@@ -274,6 +275,15 @@ start_bg() {
     fi
 }
 
+stop_port_listeners() {
+    local port=$1 label=$2
+    if command -v fuser >/dev/null 2>&1 && fuser -n tcp "$port" >/dev/null 2>&1; then
+        log "♻️  $label: stopping existing listener on port $port"
+        fuser -k -n tcp "$port" >/dev/null 2>&1 || true
+        sleep 2
+    fi
+}
+
 next_health_check() {
     local body
     body="$(curl -fsS "http://localhost:$WEBAPP_PORT" 2>/dev/null || true)"
@@ -291,43 +301,41 @@ langfuse_health_check() {
         curl -fsS "http://localhost:$LANGFUSE_PORT" >/dev/null 2>&1
 }
 
-monitoring_service_running() {
-    local service=$1
-    GRAFANA_PORT=$GRAFANA_PORT \
-    PROMETHEUS_PORT=$PROMETHEUS_PORT \
-    DCGM_EXPORTER_PORT=$DCGM_EXPORTER_PORT \
-    docker compose \
-        --project-name "$MCQGEN_MONITORING_PROJECT" \
-        -f "$PROJECT/monitoring/docker-compose.yml" \
-        ps --status running "$service" 2>/dev/null | grep -q "$service"
-}
-
-prometheus_health_check() {
-    monitoring_service_running prometheus &&
-        curl -fsS "http://localhost:$PROMETHEUS_PORT/-/healthy" >/dev/null 2>&1
-}
-
-grafana_health_check() {
-    monitoring_service_running grafana &&
-        curl -fsS "http://localhost:$GRAFANA_PORT/api/health" >/dev/null 2>&1
-}
-
-refresh_monitoring_log() {
-    bash "$PROJECT/scripts/start_monitoring.sh" --logs-only > "$LOG_DIR/grafana.log" 2>&1 || true
-}
-
 stop_broken_nextjs() {
     local body
     body="$(curl -fsS "http://localhost:$WEBAPP_PORT" 2>/dev/null || true)"
     if printf '%s' "$body" | grep -q "Could not find a production build"; then
         log "⚠️  Next.js is serving a stale production-start error; restarting it"
-        pkill -f "next .*\\(-p\\|--port\\) $WEBAPP_PORT" 2>/dev/null || true
+        stop_nextjs_service
+    fi
+}
+
+stop_nextjs_service() {
+    local stopped=0
+    stop_port_listeners "$WEBAPP_PORT" "Next.js"
+    local patterns=(
+        "next .* -p $WEBAPP_PORT"
+        "next .*--port $WEBAPP_PORT"
+        "node .*next.* -p $WEBAPP_PORT"
+        "node .*next.*--port $WEBAPP_PORT"
+        "next-server.*$PROJECT/webapp"
+    )
+    for pattern in "${patterns[@]}"; do
+        if pkill -f "$pattern" 2>/dev/null; then
+            stopped=1
+        fi
+    done
+    if [ "$stopped" -eq 1 ]; then
+        log "♻️  Old Next.js process stopped"
         sleep 2
     fi
 }
 
 start_nextjs_service() {
     stop_broken_nextjs
+    # Next.js keeps build manifests in memory. Always restart it on system start
+    # so a freshly rebuilt .next directory cannot serve stale chunks.
+    stop_nextjs_service
 
     # Production nếu đã build, dev nếu chưa
     if [ -f "$PROJECT/webapp/.next/BUILD_ID" ]; then
@@ -358,13 +366,8 @@ if is_enabled "$START_LANGFUSE"; then
 else
     log "Langfuse: skipped (--with-langfuse để bật)"
 fi
-if is_enabled "$START_MONITORING"; then
-    log "Monitoring: Grafana=$GRAFANA_PORT | Prometheus=$PROMETHEUS_PORT | DCGM=$DCGM_EXPORTER_PORT | project=$MCQGEN_MONITORING_PROJECT"
-else
-    log "Monitoring: skipped (--with-monitoring để bật)"
-fi
 log "Admin: $ADMIN_USERNAME (auto-created on first run)"
-log "Concurrency: target_users=$MCQGEN_TARGET_CONCURRENT_USERS | celery_generation=$CELERY_GENERATION_CONCURRENCY | max_questions/job=$MCQGEN_MAX_CONCURRENT_QUESTIONS | max_llm/job=$MCQGEN_LLM_MAX_CONCURRENCY | dynamic=$MCQGEN_DYNAMIC_CONCURRENCY | vllm_max_seqs=$VLLM_MAX_NUM_SEQS | total_slots=$TOTAL_LLM_SLOTS"
+log "Concurrency: capacity_jobs=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS | target_users=$MCQGEN_TARGET_CONCURRENT_USERS | celery_generation=$CELERY_GENERATION_CONCURRENCY | max_questions/job=$MCQGEN_MAX_CONCURRENT_QUESTIONS | max_llm/job=$MCQGEN_LLM_MAX_CONCURRENCY | dynamic=$MCQGEN_DYNAMIC_CONCURRENCY | global_guard=$MCQGEN_GLOBAL_SLOT_GUARD | vllm_max_seqs=$VLLM_MAX_NUM_SEQS | total_slots=$TOTAL_LLM_SLOTS"
 log "Queues: high=$CELERY_QUEUE_HIGH | low=$CELERY_QUEUE_LOW | worker_namespace=$CELERY_WORKER_NAMESPACE"
 if [ "$TOTAL_LLM_SLOTS" -gt "$VLLM_MAX_NUM_SEQS" ]; then
     log "⚠️  Concurrency overcommitted: celery_generation * questions/job > vllm_max_seqs"
@@ -386,7 +389,7 @@ else
 fi
 wait_until "Redis" "redis_ping"
 
-# ── STEP 2: vLLM (optional) + monitoring — chạy song song ───────────────────
+# ── STEP 2: vLLM (optional) + Langfuse — chạy song song ─────────────────────
 log "[2/6] Starting parallel services..."
 
 if is_enabled "$START_VLLM"; then
@@ -417,16 +420,6 @@ else
     log "⏭️  Langfuse skipped"
 fi
 
-if is_enabled "$START_MONITORING"; then
-    pkill -f "phoenix.server.*--port $GRAFANA_PORT" 2>/dev/null || true
-    start_bg "Grafana/Prometheus" \
-        "grafana_health_check" \
-        "GRAFANA_PORT=$GRAFANA_PORT PROMETHEUS_PORT=$PROMETHEUS_PORT DCGM_EXPORTER_PORT=$DCGM_EXPORTER_PORT START_DCGM_EXPORTER=$START_DCGM_EXPORTER MCQGEN_MONITORING_PROJECT='$MCQGEN_MONITORING_PROJECT' bash '$PROJECT/scripts/start_monitoring.sh'" \
-        "$LOG_DIR/grafana.log"
-else
-    log "⏭️  Grafana/Prometheus skipped"
-fi
-
 log "⏭️  Next.js will start after FastAPI /health is ready"
 
 # ── STEP 3: Celery workers ────────────────────────────────────────────────────
@@ -450,7 +443,10 @@ setsid bash -lc "
     export MCQGEN_LLM_MAX_CONCURRENCY=$MCQGEN_LLM_MAX_CONCURRENCY
     export MCQGEN_LLM_STREAM_METRICS=$MCQGEN_LLM_STREAM_METRICS
     export MCQGEN_DYNAMIC_CONCURRENCY=$MCQGEN_DYNAMIC_CONCURRENCY
+    export MCQGEN_GLOBAL_SLOT_GUARD=$MCQGEN_GLOBAL_SLOT_GUARD
+    export MCQGEN_GLOBAL_LLM_SLOTS=$MCQGEN_GLOBAL_LLM_SLOTS
     export MCQGEN_LOAD_TRACKING_TTL_SECONDS=$MCQGEN_LOAD_TRACKING_TTL_SECONDS
+    export MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
     export MCQGEN_TARGET_CONCURRENT_USERS=$MCQGEN_TARGET_CONCURRENT_USERS
     export MCQGEN_CONCURRENCY_AUTOTUNE=$MCQGEN_CONCURRENCY_AUTOTUNE
     export CELERY_GENERATION_CONCURRENCY=$CELERY_GENERATION_CONCURRENCY
@@ -491,7 +487,10 @@ setsid bash -lc "
     export VLLM_URL=$VLLM_URL
     export MCQGEN_LLM_STREAM_METRICS=$MCQGEN_LLM_STREAM_METRICS
     export MCQGEN_DYNAMIC_CONCURRENCY=$MCQGEN_DYNAMIC_CONCURRENCY
+    export MCQGEN_GLOBAL_SLOT_GUARD=$MCQGEN_GLOBAL_SLOT_GUARD
+    export MCQGEN_GLOBAL_LLM_SLOTS=$MCQGEN_GLOBAL_LLM_SLOTS
     export MCQGEN_LOAD_TRACKING_TTL_SECONDS=$MCQGEN_LOAD_TRACKING_TTL_SECONDS
+    export MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
     export CELERY_LOW_CONCURRENCY=$CELERY_LOW_CONCURRENCY
     export APP_ENV=$APP_ENV
     export TRACE_RUN_TYPE=$TRACE_RUN_TYPE
@@ -521,6 +520,7 @@ log "   Worker-low  PID=$! | concurrency=$CELERY_LOW_CONCURRENCY | queues=${CELE
 # ── STEP 4: FastAPI ───────────────────────────────────────────────────────────
 log "[4/6] FastAPI..."
 pkill -f "uvicorn.*api.main.*--port $API_PORT" 2>/dev/null && sleep 2
+stop_port_listeners "$API_PORT" "FastAPI"
 
 setsid bash -lc "
     export CUDA_VISIBLE_DEVICES=$TASK_CUDA_VISIBLE_DEVICES
@@ -536,7 +536,10 @@ setsid bash -lc "
     export MCQGEN_LLM_MAX_CONCURRENCY=$MCQGEN_LLM_MAX_CONCURRENCY
     export MCQGEN_LLM_STREAM_METRICS=$MCQGEN_LLM_STREAM_METRICS
     export MCQGEN_DYNAMIC_CONCURRENCY=$MCQGEN_DYNAMIC_CONCURRENCY
+    export MCQGEN_GLOBAL_SLOT_GUARD=$MCQGEN_GLOBAL_SLOT_GUARD
+    export MCQGEN_GLOBAL_LLM_SLOTS=$MCQGEN_GLOBAL_LLM_SLOTS
     export MCQGEN_LOAD_TRACKING_TTL_SECONDS=$MCQGEN_LOAD_TRACKING_TTL_SECONDS
+    export MCQGEN_RESOURCE_MAX_RUNNING_JOBS=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS
     export MCQGEN_TARGET_CONCURRENT_USERS=$MCQGEN_TARGET_CONCURRENT_USERS
     export MCQGEN_CONCURRENCY_AUTOTUNE=$MCQGEN_CONCURRENCY_AUTOTUNE
     export CELERY_GENERATION_CONCURRENCY=$CELERY_GENERATION_CONCURRENCY
@@ -608,13 +611,6 @@ fi
 if is_enabled "$START_LANGFUSE"; then
     wait_with_timeout "Langfuse" "langfuse_health_check" "$LANGFUSE_WAIT_SECONDS" || true
 fi
-if is_enabled "$START_MONITORING"; then
-    wait_with_timeout "Prometheus" "prometheus_health_check" "$GRAFANA_WAIT_SECONDS" || true
-    wait_with_timeout "Grafana" "grafana_health_check" "$GRAFANA_WAIT_SECONDS" || true
-    if ! grafana_health_check || ! prometheus_health_check; then
-        refresh_monitoring_log
-    fi
-fi
 
 # ── Final status ──────────────────────────────────────────────────────────────
 IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
@@ -637,10 +633,6 @@ check_svc "Next.js"   "next_proxy_health_check"                                 
 if is_enabled "$START_LANGFUSE"; then
     check_svc "Langfuse"  "langfuse_health_check"                                  ":$LANGFUSE_PORT"
 fi
-if is_enabled "$START_MONITORING"; then
-    check_svc "Grafana"    "grafana_health_check"                                   ":$GRAFANA_PORT"
-    check_svc "Prometheus" "prometheus_health_check"                                ":$PROMETHEUS_PORT"
-fi
 
 if is_enabled "$START_VLLM"; then
     if curl -s http://localhost:$VLLM_PORT/health >/dev/null 2>&1; then
@@ -654,23 +646,21 @@ fi
 
 # Celery workers status. Redis may be shared by multiple team members, so only
 # count workers with this process namespace.
-WORKERS=$(celery -A api.tasks inspect ping --timeout=3 2>/dev/null | grep -c "^->  ${CELERY_WORKER_NAMESPACE}-worker-" || echo "0")
+WORKERS=$(celery -A api.tasks inspect ping --timeout=3 2>/dev/null | grep -c "^->  ${CELERY_WORKER_NAMESPACE}-worker-" || true)
+[ -n "$WORKERS" ] || WORKERS=0
 printf "  ✅ %-12s %s own workers responding\n" "Celery" "$WORKERS"
 
 echo ""
 echo "  ⚙️  Concurrency:"
-echo "     target_users=$MCQGEN_TARGET_CONCURRENT_USERS | celery_generation=$CELERY_GENERATION_CONCURRENCY | max_questions/job=$MCQGEN_MAX_CONCURRENT_QUESTIONS | max_llm/job=$MCQGEN_LLM_MAX_CONCURRENCY"
-echo "     vllm_max_seqs=$VLLM_MAX_NUM_SEQS | total_llm_slots=$TOTAL_LLM_SLOTS | dynamic=$MCQGEN_DYNAMIC_CONCURRENCY | autotune=$MCQGEN_CONCURRENCY_AUTOTUNE"
+echo "     capacity_jobs=$MCQGEN_RESOURCE_MAX_RUNNING_JOBS | target_users=$MCQGEN_TARGET_CONCURRENT_USERS | celery_generation=$CELERY_GENERATION_CONCURRENCY"
+echo "     max_questions/job=$MCQGEN_MAX_CONCURRENT_QUESTIONS | max_llm/job=$MCQGEN_LLM_MAX_CONCURRENCY"
+echo "     vllm_max_seqs=$VLLM_MAX_NUM_SEQS | total_llm_slots=$TOTAL_LLM_SLOTS | dynamic=$MCQGEN_DYNAMIC_CONCURRENCY | global_guard=$MCQGEN_GLOBAL_SLOT_GUARD | autotune=$MCQGEN_CONCURRENCY_AUTOTUNE"
 echo "     queues=$CELERY_QUEUE_HIGH,$CELERY_QUEUE_LOW | worker_namespace=$CELERY_WORKER_NAMESPACE"
 echo ""
 echo "  🌐 UI:       http://$IP:$WEBAPP_PORT"
 echo "  🔧 API docs: http://$IP:$API_PORT/docs"
 if is_enabled "$START_LANGFUSE"; then
     echo "  📈 Langfuse: http://$IP:$LANGFUSE_PORT"
-fi
-if is_enabled "$START_MONITORING"; then
-    echo "  📊 Grafana:  http://$IP:$GRAFANA_PORT"
-    echo "  📡 Prometheus: http://$IP:$PROMETHEUS_PORT"
 fi
 echo "  👤 Admin:    $ADMIN_USERNAME / $ADMIN_PASSWORD"
 echo ""
@@ -679,6 +669,5 @@ echo "    FastAPI  → logs/fastapi.log"
 echo "    Celery   → logs/celery_high.log | logs/celery_low.log"
 echo "    Next.js  → logs/nextjs.log"
 echo "    Langfuse → logs/langfuse.log"
-echo "    Grafana  → logs/grafana.log"
 echo "    vLLM     → logs/vllm.log"
 log "════════════════════════════════════════"
