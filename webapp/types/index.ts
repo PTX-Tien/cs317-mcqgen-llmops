@@ -66,7 +66,7 @@ export interface PracticeDetail extends PracticeQuestion {
   selected: string
   correct_answers: string[]
   is_correct: boolean
-  correct_rationale: string
+  explanation: string
 }
 
 export interface GenerationFailure {

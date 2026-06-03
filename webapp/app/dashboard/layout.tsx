@@ -208,12 +208,8 @@ export default function DashboardLayout({
                   <p className="text-xs text-slate-400">MCQGen CS116</p>
                 </div>
 
-                <Badge className={`rounded-full px-4 py-1 hover:bg-opacity-100 ${
-                  user.role === "admin"
-                    ? "bg-purple-100 text-purple-700 hover:bg-purple-100"
-                    : "bg-blue-100 text-blue-700 hover:bg-blue-100"
-                }`}>
-                  {user.role === "admin" ? "Admin" : "User"}
+                <Badge className="rounded-full bg-blue-100 px-4 py-1 text-blue-700 hover:bg-blue-100">
+                  {user.role === "teacher" ? "Giảng viên" : "Sinh viên"}
                 </Badge>
 
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#E8F0FF] font-bold text-[#1E4FFF] shrink-0">
