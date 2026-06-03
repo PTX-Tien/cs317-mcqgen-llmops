@@ -988,10 +988,6 @@ export default function GeneratePage() {
     genState.status === "queued" || genState.status === "running"
       ? genState
       : null;
-  const displayedQuestionSlots =
-    resourceState?.effectiveQuestionConcurrency ??
-    resourceState?.expectedQuestionSlotsWhenRunning ??
-    resourceState?.allocatedQuestionSlotsAtStart;
   const resourceStatusLabel = resourceState
     ? resourceState.willQueueDueToResources
       ? "Đang chờ tài nguyên"
@@ -1306,56 +1302,14 @@ export default function GeneratePage() {
                   )}
                 </div>
 
-                {resourceState &&
-                  (resourceState.resourceMessage ||
-                    displayedQuestionSlots !== undefined ||
-                    resourceState.resourceSlotsTotal !== undefined) && (
+                {resourceState?.resourceMessage && (
                     <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
                       <div className="font-semibold text-blue-700">
                         {resourceStatusLabel}
                       </div>
-                      {resourceState.resourceMessage && (
-                        <p className="mt-1 leading-5 text-slate-600">
-                          {resourceState.resourceMessage}
-                        </p>
-                      )}
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        {displayedQuestionSlots !== undefined && (
-                          <div>
-                            <div className="text-xs text-slate-500">
-                              Slot câu hỏi/job
-                            </div>
-                            <div className="font-semibold text-slate-800">
-                              {displayedQuestionSlots}
-                            </div>
-                          </div>
-                        )}
-                        {resourceState.resourceSlotsTotal !== undefined && (
-                          <div>
-                            <div className="text-xs text-slate-500">
-                              Tổng slot LLM
-                            </div>
-                            <div className="font-semibold text-slate-800">
-                              {resourceState.resourceSlotsTotal}
-                            </div>
-                          </div>
-                        )}
-                        {(resourceState.runningGenerationJobsAtStart !==
-                          undefined ||
-                          resourceState.queuedGenerationJobsAtStart !==
-                            undefined) && (
-                          <div>
-                            <div className="text-xs text-slate-500">
-                              Jobs chạy / chờ
-                            </div>
-                            <div className="font-semibold text-slate-800">
-                              {resourceState.runningGenerationJobsAtStart ?? 0}
-                              {" / "}
-                              {resourceState.queuedGenerationJobsAtStart ?? 0}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <p className="mt-1 leading-5 text-slate-600">
+                        {resourceState.resourceMessage}
+                      </p>
                     </div>
                   )}
 

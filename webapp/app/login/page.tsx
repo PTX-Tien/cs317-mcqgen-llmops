@@ -8,6 +8,15 @@ import { AlertCircle, Eye, EyeOff, LogIn, Lock, User, ShieldCheck, UserPlus } fr
 
 type Tab = "login" | "register";
 
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string } } })
+      .response;
+    return response?.data?.detail || fallback;
+  }
+  return fallback;
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -37,8 +46,8 @@ export default function LoginPage() {
       );
       toast.success(`Chào mừng, ${data.full_name}!`);
       router.push("/dashboard");
-    } catch (err: any) {
-      const message = err?.response?.data?.detail || "Đăng nhập thất bại";
+    } catch (err: unknown) {
+      const message = getApiErrorMessage(err, "Đăng nhập thất bại");
       setLoginError(message);
       toast.error(message);
     } finally {
@@ -63,8 +72,8 @@ export default function LoginPage() {
       toast.success("Đăng ký thành công! Hãy đăng nhập.");
       setLoginForm({ username: registerForm.username, password: "" });
       setTab("login");
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || "Đăng ký thất bại");
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, "Đăng ký thất bại"));
     } finally {
       setLoading(false);
     }

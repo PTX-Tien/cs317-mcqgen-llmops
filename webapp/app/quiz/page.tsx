@@ -1,13 +1,12 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { MCQ } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { User, CreditCard, Upload, Info, Rocket, IdCard } from "lucide-react";
+import { User, Upload, Info, Rocket, IdCard } from "lucide-react";
 
 type QuizPhase = "setup" | "taking" | "results";
 interface QuizAnswer {
@@ -19,7 +18,6 @@ interface TopicStat {
 }
 
 export default function QuizPage() {
-  const router = useRouter();
   const [phase, setPhase] = useState<QuizPhase>("setup");
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [studentName, setStudentName] = useState("");
@@ -28,22 +26,8 @@ export default function QuizPage() {
   const [currentQ, setCurrentQ] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [startTime, setStartTime] = useState(0);
+  const [submittedAt, setSubmittedAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    if (phase !== "taking" || timeLeft <= 0) return;
-    const t = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(t);
-          handleSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [phase, timeLeft]);
 
   const parseFile = (file: File) => {
     const reader = new FileReader();
@@ -84,6 +68,7 @@ export default function QuizPage() {
     }
     setTimeLeft(mcqs.length * 90);
     setStartTime(Date.now());
+    setSubmittedAt(null);
     setCurrentQ(0);
     setAnswers({});
     setPhase("taking");
@@ -92,19 +77,39 @@ export default function QuizPage() {
   const selectAnswer = (key: string) =>
     setAnswers((prev) => ({ ...prev, [currentQ]: key }));
 
-  const handleSubmit = () => {
+  const finishQuiz = useCallback(() => {
+    setSubmittedAt(Date.now());
+    setPhase("results");
+  }, []);
+
+  const handleSubmit = useCallback((force = false) => {
     const unanswered = mcqs.map((_, i) => i).filter((i) => !answers[i]);
-    if (unanswered.length > 0 && timeLeft > 0) {
+    if (!force && unanswered.length > 0 && timeLeft > 0) {
       toast.warning(
         `Còn ${unanswered.length} câu chưa trả lời. Xác nhận nộp?`,
         {
-          action: { label: "Nộp bài", onClick: () => setPhase("results") },
+          action: { label: "Nộp bài", onClick: finishQuiz },
         },
       );
       return;
     }
-    setPhase("results");
-  };
+    finishQuiz();
+  }, [answers, finishQuiz, mcqs, timeLeft]);
+
+  useEffect(() => {
+    if (phase !== "taking") return;
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          window.setTimeout(() => handleSubmit(true), 0);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [handleSubmit, phase]);
 
   const calcResults = () => {
     let correct = 0;
@@ -119,7 +124,7 @@ export default function QuizPage() {
       if (isCorrect) topicStats[t].correct++;
       return { mcq, selected, isCorrect };
     });
-    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const elapsed = Math.round(((submittedAt ?? startTime) - startTime) / 1000);
     const score = (correct / mcqs.length) * 10;
     return { correct, total: mcqs.length, score, elapsed, topicStats, details };
   };
@@ -499,7 +504,7 @@ export default function QuizPage() {
           >
             ⏱ {formatTime(timeLeft)}
           </div>
-          <Button size="sm" onClick={handleSubmit} variant="outline">
+          <Button size="sm" onClick={() => handleSubmit()} variant="outline">
             Nộp bài
           </Button>
         </div>
@@ -582,7 +587,7 @@ export default function QuizPage() {
               <Button onClick={() => setCurrentQ(currentQ + 1)}>Tiếp →</Button>
             ) : (
               <Button
-                onClick={handleSubmit}
+                onClick={() => handleSubmit()}
                 className="bg-green-600 hover:bg-green-700"
               >
                 Nộp bài ✓

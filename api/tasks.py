@@ -133,6 +133,7 @@ def run_mcq_pipeline(
         "n_questions": total_questions,
         "topic_count": len(topics),
         "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "resource_capacity_jobs": settings.MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
         "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
@@ -142,6 +143,8 @@ def run_mcq_pipeline(
             if str(settings.MCQGEN_DYNAMIC_CONCURRENCY).strip().lower() in {"1", "true", "yes", "on"}
             else settings.CELERY_GENERATION_CONCURRENCY * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
         ),
+        "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
         "celery_queue_high": settings.CELERY_QUEUE_HIGH,
         "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
     }

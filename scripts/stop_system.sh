@@ -18,11 +18,23 @@ stop_proc() {
     fi
 }
 
+stop_port() {
+    local port=$1 label=$2
+    if command -v fuser >/dev/null 2>&1 && fuser -n tcp "$port" >/dev/null 2>&1; then
+        fuser -k -n tcp "$port" >/dev/null 2>&1 \
+            && echo "  ✅ $label listener on :$port stopped"
+    fi
+}
+
 stop_proc "uvicorn.*api.main.*--port $API_PORT"   "FastAPI"
+stop_port "$API_PORT"                              "FastAPI"
 stop_proc "celery.*mcqgen.*worker"                 "Celery workers"
-stop_proc "celery.*mcqgen.*flower"                 "Flower"
-stop_proc "next.*--port $WEBAPP_PORT"              "Next.js"
+stop_proc "next .* -p $WEBAPP_PORT"                "Next.js"
+stop_proc "next .*--port $WEBAPP_PORT"             "Next.js"
+stop_proc "node .*next.* -p $WEBAPP_PORT"          "Next.js"
+stop_proc "node .*next.*--port $WEBAPP_PORT"       "Next.js"
 stop_proc "next-server.*$PROJECT/webapp"           "Next.js server"
+stop_port "$WEBAPP_PORT"                           "Next.js"
 stop_proc "vllm serve.*--port $VLLM_PORT"          "vLLM"
 
 # Redis: shutdown graceful, không tắt nếu có service khác dùng

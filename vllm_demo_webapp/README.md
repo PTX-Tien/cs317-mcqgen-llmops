@@ -6,7 +6,7 @@ Webapp này dùng để demo trực quan 3 phần chính:
 - Exp03: Full pipeline sequential vs async + vLLM
 - Exp07: Sequential/no-batching baseline vs concurrent vLLM
 
-App không thay thế Grafana. Nó dùng để trình bày kết quả dễ hiểu hơn: bấm chạy experiment, xem log realtime, xem SVG và Markdown report mới nhất.
+App dùng để trình bày kết quả dễ hiểu hơn: bấm chạy experiment, xem log realtime, xem SVG và Markdown report mới nhất.
 
 ## Run
 
