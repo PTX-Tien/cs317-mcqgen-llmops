@@ -3,12 +3,11 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { MCQ, PracticeQuestion } from "@/types";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MathText } from "@/components/math-text";
 import { toast } from "sonner";
-import { Eye, EyeOff, PlayCircle } from "lucide-react";
+import { Eye, EyeOff, PlayCircle, FileText, KeyRound } from "lucide-react";
 
 type ExamQuestion = PracticeQuestion | MCQ;
 
@@ -80,107 +79,180 @@ export default function ExamDetailPage() {
 
   return (
     <div className="space-y-4">
-      <div className="sticky -top-8 z-30 -mx-8 -mt-8 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-[#F4F7FC]/95 px-8 py-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        <div className="min-w-0">
-          <Button variant="ghost" size="sm" onClick={() => router.back()}>
-            ← Quay lại
-          </Button>
-          <h1 className="text-xl font-bold mt-1">
-            📋 {examName} — {questions.length} câu
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {hasAttempt
-              ? "Bạn có thể chuyển giữa đề thi và đáp án."
-              : "Đáp án chỉ mở sau khi bạn nộp bài."}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant={showAnswers ? "outline" : "default"}
-            onClick={() => setShowAnswers(false)}
-          >
-            <EyeOff size={15} />
-            Xem đề
-          </Button>
-          <Button
-            size="sm"
-            variant={showAnswers ? "default" : "outline"}
-            disabled={!hasAttempt}
-            onClick={() => setShowAnswers(true)}
-          >
-            <Eye size={15} />
-            Xem đáp án
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => router.push(`/dashboard/take/${id}`)}
-          >
-            <PlayCircle size={15} />
-            Bắt đầu làm đề
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => downloadPdf(false)}
-          >
-            📋 PDF Đề
-          </Button>
-          {hasAttempt && (
+      {/* ── Sticky header ── */}
+      <div className="sticky -top-8 z-30 -mx-8 -mt-8 border-b border-slate-200/70 bg-[#F4F7FC]/95 px-8 py-4 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-1 text-slate-500 hover:text-slate-700 px-0"
+          onClick={() => router.back()}
+        >
+          ← Quay lại
+        </Button>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              📋 {examName} — {questions.length} câu
+            </h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {hasAttempt
+                ? "Bạn có thể chuyển giữa đề thi và đáp án."
+                : "Đáp án chỉ mở sau khi bạn nộp bài."}
+            </p>
+          </div>
+
+          {/* Action buttons — matches screenshot */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Xem đề */}
+            <Button
+              size="sm"
+              onClick={() => setShowAnswers(false)}
+              className={
+                !showAnswers
+                  ? "bg-[#1a2744] text-white hover:bg-[#1a2744]/90"
+                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+              }
+            >
+              <EyeOff size={15} />
+              Xem đề
+            </Button>
+
+            {/* Xem đáp án */}
+            <Button
+              size="sm"
+              disabled={!hasAttempt}
+              onClick={() => setShowAnswers(true)}
+              className={
+                showAnswers
+                  ? "bg-[#1a2744] text-white hover:bg-[#1a2744]/90"
+                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+              }
+            >
+              <Eye size={15} />
+              Xem đáp án
+            </Button>
+
+            {/* Bắt đầu làm đề */}
+            <Button
+              size="sm"
+              className="bg-[#1a2744] text-white hover:bg-[#1a2744]/90"
+              onClick={() => router.push(`/dashboard/take/${id}`)}
+            >
+              <PlayCircle size={15} />
+              Bắt đầu làm đề
+            </Button>
+
+            {/* PDF Đề */}
             <Button
               size="sm"
               variant="outline"
-              onClick={() => downloadPdf(true)}
+              className="border-slate-200 text-slate-700 hover:bg-slate-50 gap-1.5"
+              onClick={() => downloadPdf(false)}
             >
-              🔑 PDF Đáp án
+              <FileText size={14} className="text-orange-400" />
+              PDF Đề
             </Button>
-          )}
+
+            {/* PDF Đáp án — chỉ hiện khi đã có attempt */}
+            {hasAttempt && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-slate-200 text-slate-700 hover:bg-slate-50 gap-1.5"
+                onClick={() => downloadPdf(true)}
+              >
+                <KeyRound size={14} className="text-yellow-400" />
+                PDF Đáp án
+              </Button>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* ── Question list ── */}
       {questions.map((mcq, i) => {
         const correctAnswers =
           showAnswers && "correct_answers" in mcq ? mcq.correct_answers : [];
+
         return (
-          <Card key={i}>
-            <CardContent className="p-4">
-              <p className="font-medium text-sm mb-3">
+          <div
+            key={i}
+            className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
+          >
+            <div className="p-5">
+              {/* Question text */}
+              <p className="font-semibold text-slate-900 dark:text-white mb-4 leading-relaxed">
                 {i + 1}. <MathText text={mcq.question_text} />
               </p>
-              <div className="space-y-1">
-                {Object.entries(mcq.options).map(([k, v]) => (
-                  <div
-                    key={k}
-                    className={`px-3 py-2 rounded text-sm ${
-                      showAnswers && correctAnswers.includes(k)
-                        ? "bg-green-50 border border-green-200 text-green-800 font-medium"
-                        : "bg-slate-50 border border-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {showAnswers && correctAnswers.includes(k) ? "✓" : " "} {k}.{" "}
-                    <MathText text={v} />
-                  </div>
-                ))}
+
+              {/* Options */}
+              <div className="space-y-2">
+                {Object.entries(mcq.options).map(([k, v]) => {
+                  const isCorrect = showAnswers && correctAnswers.includes(k);
+                  return (
+                    <div
+                      key={k}
+                      className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors ${
+                        isCorrect
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-slate-100 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-700/40 dark:text-slate-300"
+                      }`}
+                    >
+                      {/* Radio circle */}
+                      <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                          isCorrect
+                            ? "border-emerald-500 bg-emerald-500"
+                            : "border-slate-300 dark:border-slate-500"
+                        }`}
+                      >
+                        {isCorrect && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                        )}
+                      </span>
+
+                      <span>
+                        <span className="font-medium">{k}.</span>{" "}
+                        <MathText text={v} />
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
+
+              {/* Answer summary */}
               {showAnswers && correctAnswers.length > 0 && (
-                <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700">
                   Đáp án: {correctAnswers.join(", ")}
                 </div>
               )}
-              <div className="flex gap-2 mt-2">
+
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2 mt-3">
                 {"chapter_label" in mcq && mcq.chapter_label ? (
-                  <Badge variant="outline" className="text-xs">
+                  <Badge
+                    variant="outline"
+                    className="rounded-full text-xs text-slate-500 border-slate-200"
+                  >
                     {mcq.chapter_label}
                   </Badge>
                 ) : null}
-                <Badge variant="outline" className="text-xs">
+                <Badge
+                  variant="outline"
+                  className="rounded-full text-xs text-slate-500 border-slate-200"
+                >
                   {mcq.topic}
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge
+                  variant="outline"
+                  className="rounded-full text-xs text-slate-500 border-slate-200"
+                >
                   {mcq.difficulty_label}
                 </Badge>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         );
       })}
     </div>

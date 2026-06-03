@@ -184,7 +184,7 @@ Options:
   --with-monitoring / --no-monitoring
                 Bật/tắt Prometheus + Grafana + DCGM exporter
 Env vars chính:
-  START_VLLM=1          Giống --with-vllm
+  START_VLLM=0          Giống --with-vllm
   START_LANGFUSE=1      Khởi động Langfuse Docker Compose
   START_MONITORING=1    Khởi động Grafana/Prometheus cho GPU metrics
   MCQGEN_TARGET_CONCURRENT_USERS=3
