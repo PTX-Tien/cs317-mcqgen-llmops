@@ -555,11 +555,14 @@ def _score_practice_attempt(mcqs: list[dict], answers: dict[str, str]) -> tuple[
             "selected": selected,
             "correct_answers": correct_answers,
             "is_correct": is_correct,
-            "correct_rationale": mcq.get("correct_rationale", ""),
+            "explanation": mcq.get("explanation", {}).get("correct_answer_rationale", ""), 
             "topic": mcq.get("topic", ""),
             "chapter_id": mcq.get("chapter_id", ""),
             "chapter_label": _chapter_label(mcq.get("chapter_id")),
-            "difficulty_label": mcq.get("difficulty_label", mcq.get("difficulty", "G2")),
+            "difficulty_label": mcq.get(
+                "difficulty_label",
+                mcq.get("difficulty", "G2")
+            ),
         })
     return n_correct, details
 

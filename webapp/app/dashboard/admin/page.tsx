@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +57,18 @@ interface WarmupState {
   error?: string;
 }
 
+interface WarmupStatusResponse {
+  state: string;
+  progress?: number;
+  step?: string;
+  error?: string;
+}
+
+interface UserStatusResponse {
+  is_active: boolean;
+  message: string;
+}
+
 interface UserDetail extends UserRow {
   recent_exams: {
     task_id: string; exam_name: string; status: string;
@@ -69,6 +81,19 @@ interface UserDetail extends UserRow {
 }
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+const subscribeNoop = () => () => {};
+const emptySnapshot = () => "";
+const browserOriginSnapshot = () => window.location.origin;
+const browserHostBaseSnapshot = () =>
+  `${window.location.protocol}//${window.location.hostname}`;
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string } } })
+      .response;
+    return response?.data?.detail || fallback;
+  }
+  return fallback;
+};
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
@@ -89,8 +114,16 @@ export default function AdminPage() {
   const [resetPwConfirm, setResetPwConfirm] = useState("");
   const [showPw, setShowPw]           = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
-  const [serviceOrigin, setServiceOrigin] = useState("");
-  const [serviceHostBase, setServiceHostBase] = useState("");
+  const serviceOrigin = useSyncExternalStore(
+    subscribeNoop,
+    browserOriginSnapshot,
+    emptySnapshot,
+  );
+  const serviceHostBase = useSyncExternalStore(
+    subscribeNoop,
+    browserHostBaseSnapshot,
+    emptySnapshot,
+  );
 
   const loadData = useCallback(async (quiet = false) => {
     const token = localStorage.getItem("access_token");
@@ -114,13 +147,11 @@ export default function AdminPage() {
   }, [router]);
 
   useEffect(() => {
-    setServiceOrigin(window.location.origin);
-    setServiceHostBase(
-      `${window.location.protocol}//${window.location.hostname}`,
-    );
-  }, []);
-
-  useEffect(() => { loadData(); }, [loadData]);
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   const fmt = (s: string | null) =>
     s ? new Date(s).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }) : "—";
@@ -134,7 +165,7 @@ export default function AdminPage() {
       const deadline = Date.now() + 15 * 60 * 1000;
       while (Date.now() < deadline) {
         await sleep(2000);
-        const s = (await api.get(`/status/${taskId}`)).data;
+        const s = (await api.get<WarmupStatusResponse>(`/status/${taskId}`)).data;
         if (s.state === "running") {
           setWarmup({ status: "running", progress: s.progress ?? 0, step: s.step || "Warming..." });
         } else if (s.state === "success") {
@@ -146,7 +177,7 @@ export default function AdminPage() {
         }
       }
       throw new Error("Timeout");
-    } catch (e: any) {
+    } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Warmup thất bại";
       setWarmup({ status: "failed", progress: 0, step: "", error: msg });
       toast.error(msg);
@@ -176,8 +207,8 @@ export default function AdminPage() {
       await api.post(`/admin/users/${detailUser.username}/reset-password`, { new_password: resetPw });
       toast.success(`Đã đặt lại mật khẩu cho ${detailUser.username}`);
       setResetPw(""); setResetPwConfirm("");
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Lỗi đặt lại mật khẩu");
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Lỗi đặt lại mật khẩu"));
     } finally {
       setResetLoading(false);
     }
@@ -187,11 +218,11 @@ export default function AdminPage() {
   const handleToggleUser = async (username: string) => {
     setTogglingUser(username);
     try {
-      const { data } = await api.patch(`/admin/users/${username}/status`);
+      const { data } = await api.patch<UserStatusResponse>(`/admin/users/${username}/status`);
       setUsers((prev) => prev.map((u) => u.username === username ? { ...u, is_active: data.is_active } : u));
       toast.success(data.message);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Lỗi thay đổi trạng thái");
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Lỗi thay đổi trạng thái"));
     } finally {
       setTogglingUser(null);
     }
@@ -204,8 +235,8 @@ export default function AdminPage() {
       await api.delete(`/admin/users/${username}`);
       setUsers((prev) => prev.filter((u) => u.username !== username));
       toast.success(`Đã xoá user ${username}`);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Lỗi xoá user");
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Lỗi xoá user"));
     } finally {
       setDeletingUser(null);
     }
