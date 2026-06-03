@@ -15,7 +15,6 @@ openai==2.32.0
 openinference-instrumentation==0.1.48
 openinference-instrumentation-openai==0.1.45
 openinference-semantic-conventions==0.1.29
-prometheus-fastapi-instrumentator==7.1.0
 pyarrow==24.0.0
 pydantic==2.13.3
 pydantic-ai==1.88.0

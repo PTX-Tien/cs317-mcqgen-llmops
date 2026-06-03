@@ -5,6 +5,7 @@ import asyncio, json, math, sys, uuid
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -16,15 +17,15 @@ from celery.result import AsyncResult
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from prometheus_fastapi_instrumentator import Instrumentator
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from api.tasks import celery_app, run_mcq_pipeline, warmup_system
 from api.core.config import settings
 from api.core.logger import setup_logging, log, CorrelationIDMiddleware
 from api.core.auth import (
-    get_users_db, pwd_context, create_token, get_current_user,
-    require_role, oauth2_scheme
+    pwd_context, create_token, decode_token, get_current_user,
+    require_role, oauth2_scheme,
+    register_user, UsernameAlreadyExistsError,
 )
 from api.core.database import (
     engine,
@@ -38,6 +39,27 @@ from api.core.database import (
     Exam,
     Question,
     QuizAttempt,
+    UserAccount,
+)
+from api.core.cache import (
+    get_cached_task_id,
+    set_cached_task_id,
+    cache_health,
+)
+from api.core.load_tracking import (
+    finish_generation,
+    load_metadata,
+    load_tags,
+    register_generation_start,
+)
+from api.core.session import (
+    register_session,
+    blacklist_token,
+    invalidate_user_sessions,
+    append_user_context,
+    get_user_context,
+    clear_user_context,
+    session_health,
 )
 from api.pdf_exporter import export_exam_pdf
 from src.mcqgen.math_format import normalize_mcq_math, strip_answers_for_view
@@ -64,8 +86,14 @@ def get_user_key(request: Request) -> str:
         pass
     return get_remote_address(request)
 
-limiter = Limiter(key_func=get_user_key)
-app     = FastAPI(title="MCQGen API", version="2.0", docs_url="/docs")
+# Redis-backed storage đảm bảo rate limit được chia sẻ qua tất cả API instances
+# Fallback sang in-memory nếu Redis không khả dụng
+try:
+    limiter = Limiter(key_func=get_user_key, storage_uri=settings.REDIS_CACHE_URL)
+except Exception:
+    limiter = Limiter(key_func=get_user_key)
+
+app = FastAPI(title="MCQGen API", version="2.0", docs_url="/docs")
 
 # ── Middleware ────────────────────────────────────────────────────
 app.state.limiter = limiter
@@ -77,11 +105,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
-    app,
-    endpoint="/metrics",
-    include_in_schema=False,
-)
+
+PROXY_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-encoding",
+    "content-length",
+}
+
+
+async def proxy_to_upstream(request: Request, upstream_base: str, upstream_path: str) -> Response:
+    """Small public gateway proxy for services hidden behind blocked ports."""
+    path = "/" + upstream_path.lstrip("/")
+    url = httpx.URL(f"{upstream_base.rstrip('/')}{path}")
+    if request.url.query:
+        url = url.copy_with(query=request.url.query.encode("utf-8"))
+
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "host"
+    }
+    headers["X-Forwarded-Host"] = request.headers.get("host", "")
+    headers["X-Forwarded-Proto"] = request.url.scheme
+
+    body = await request.body()
+    try:
+        async with httpx.AsyncClient(timeout=PROXY_TIMEOUT, follow_redirects=False) as client:
+            upstream_response = await client.request(
+                request.method,
+                url,
+                content=body,
+                headers=headers,
+            )
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream unavailable: {upstream_base}") from exc
+
+    response_headers = {
+        key: value
+        for key, value in upstream_response.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS
+    }
+    return Response(
+        content=upstream_response.content,
+        status_code=upstream_response.status_code,
+        headers=response_headers,
+        media_type=upstream_response.headers.get("content-type"),
+    )
 
 # ── Schemas ───────────────────────────────────────────────────────
 class TopicConfig(BaseModel):
@@ -109,12 +186,18 @@ class PracticeSubmitRequest(BaseModel):
     answers: Dict[str, str]
     duration_seconds: int = 0
 
+class RegisterRequest(BaseModel):
+    username:   str
+    password:   str
+    full_name:  Optional[str] = ""
+
 GENERATION_MIN_PER_QUESTION_BY_MODE = {
     "fast": 7,
     "auto": 8,
     "quality": 10,
 }
 QUEUE_MIN_PER_JOB = 10
+GENERATION_TASK_NAME = "api.tasks.run_mcq_pipeline"
 CHAPTER_LABELS = {
     "ch02": "Chương 2: NumPy, Pandas",
     "ch03": "Chương 3: Pipeline và EDA",
@@ -129,21 +212,137 @@ CHAPTER_LABELS = {
     "ch11": "Chương 11: Triển khai mô hình",
 }
 
-def estimate_generation_minutes(n_questions: int, retrieval_mode: str = "auto") -> int:
+def _env_flag(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+def estimate_generation_minutes(
+    n_questions: int,
+    retrieval_mode: str = "auto",
+    active_generation_jobs: int = 1,
+) -> int:
     minutes_per_question = GENERATION_MIN_PER_QUESTION_BY_MODE.get(retrieval_mode, 8)
+    active_generation_jobs = max(1, active_generation_jobs)
+    dynamic_question_concurrency = max(1, settings.VLLM_MAX_NUM_SEQS // active_generation_jobs)
     effective_concurrency = max(
         1,
         min(
             settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
             settings.MCQGEN_LLM_MAX_CONCURRENCY,
             settings.VLLM_MAX_NUM_SEQS,
+            dynamic_question_concurrency
+            if _env_flag(settings.MCQGEN_DYNAMIC_CONCURRENCY)
+            else settings.VLLM_MAX_NUM_SEQS,
         ),
     )
     runtime = max(1, math.ceil((n_questions * minutes_per_question) / effective_concurrency))
     return runtime
 
-def _count_inspected_tasks(tasks_by_worker) -> int:
-    return sum(len(tasks) for tasks in (tasks_by_worker or {}).values())
+def estimate_queue_wait_minutes(jobs_ahead: int) -> int:
+    worker_slots = max(1, settings.CELERY_GENERATION_CONCURRENCY)
+    job_waves_ahead = max(0, jobs_ahead) // worker_slots
+    return job_waves_ahead * QUEUE_MIN_PER_JOB
+
+def configured_total_llm_slots() -> int:
+    if str(settings.MCQGEN_DYNAMIC_CONCURRENCY).strip().lower() in {"1", "true", "yes", "on"}:
+        return settings.VLLM_MAX_NUM_SEQS
+    return settings.CELERY_GENERATION_CONCURRENCY * settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+
+def resource_capacity_jobs() -> int:
+    return max(
+        1,
+        min(
+            settings.MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
+            settings.CELERY_GENERATION_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+        ),
+    )
+
+def _question_slots_for_running_jobs(running_jobs: int) -> int:
+    running_jobs = max(1, running_jobs)
+    if _env_flag(settings.MCQGEN_DYNAMIC_CONCURRENCY):
+        dynamic_slots = max(1, settings.VLLM_MAX_NUM_SEQS // running_jobs)
+    else:
+        dynamic_slots = settings.MCQGEN_MAX_CONCURRENT_QUESTIONS
+    return max(
+        1,
+        min(
+            settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+            settings.MCQGEN_LLM_MAX_CONCURRENCY,
+            settings.VLLM_MAX_NUM_SEQS,
+            dynamic_slots,
+        ),
+    )
+
+def build_resource_plan(queue: dict, load_snapshot) -> dict:
+    max_parallel_jobs = resource_capacity_jobs()
+    jobs_ahead = int(queue.get("total_jobs", 0))
+    active_jobs = int(queue.get("active_jobs", 0))
+    queued_jobs = int(queue.get("queued_jobs", 0))
+    will_queue = active_jobs >= max_parallel_jobs or jobs_ahead >= max_parallel_jobs
+    projected_running_jobs = (
+        max_parallel_jobs
+        if will_queue
+        else max(1, min(max_parallel_jobs, active_jobs + 1))
+    )
+    immediate_slots = _question_slots_for_running_jobs(projected_running_jobs)
+    expected_slots_when_running = _question_slots_for_running_jobs(max_parallel_jobs)
+    resource_status = "queued_resource_limit" if will_queue else "allocated"
+    queue_reason = "resource_capacity" if will_queue else "available_capacity"
+    if will_queue:
+        resource_message = (
+            "Server đang dùng hết tài nguyên sinh đề. Yêu cầu của bạn đã được đưa vào hàng đợi "
+            "và sẽ tự chạy khi có tài nguyên trống."
+        )
+    elif active_jobs > 0 or load_snapshot.concurrent_users > 1:
+        resource_message = (
+            "Yêu cầu sẽ được xử lý ngay. Hiện có nhiều job đang dùng hệ thống nên tài nguyên "
+            "sẽ được chia tự động để các đề cùng chạy ổn định."
+        )
+    else:
+        resource_message = (
+            "Yêu cầu sẽ được xử lý ngay. Hệ thống đang rảnh nên job này sẽ tự tận dụng tài nguyên hiện có."
+        )
+    return {
+        "resource_status": resource_status,
+        "resource_queue_reason": queue_reason,
+        "resource_message": resource_message,
+        "resource_capacity_jobs": max_parallel_jobs,
+        "running_generation_jobs_at_start": active_jobs,
+        "queued_generation_jobs_at_start": queued_jobs,
+        "jobs_ahead_at_start": jobs_ahead,
+        "will_queue_due_to_resources": will_queue,
+        "resource_slots_total": configured_total_llm_slots(),
+        "allocated_question_slots_at_start": 0 if will_queue else immediate_slots,
+        "expected_question_slots_when_running": expected_slots_when_running if will_queue else immediate_slots,
+        "projected_running_jobs_for_slots": projected_running_jobs,
+        "resource_saturation": min(1.0, active_jobs / max_parallel_jobs),
+        "concurrent_users_at_start": load_snapshot.concurrent_users,
+        "concurrent_traces_at_start": load_snapshot.concurrent_traces,
+    }
+
+def _task_name(task: Any) -> str:
+    if not isinstance(task, dict):
+        return ""
+    request = task.get("request")
+    if isinstance(request, dict):
+        return str(request.get("name") or request.get("task") or "")
+    return str(task.get("name") or task.get("task") or "")
+
+def _is_own_worker(worker_name: str) -> bool:
+    namespace = (settings.CELERY_WORKER_NAMESPACE or "").strip()
+    if not namespace:
+        return True
+    return worker_name.startswith(f"{namespace}-")
+
+def _count_generation_tasks(tasks_by_worker) -> int:
+    total = 0
+    for worker_name, tasks in (tasks_by_worker or {}).items():
+        if not _is_own_worker(str(worker_name)):
+            continue
+        for task in tasks or []:
+            if _task_name(task) == GENERATION_TASK_NAME:
+                total += 1
+    return total
 
 def get_queue_snapshot() -> dict:
     """Return Celery queue load before submitting a new task."""
@@ -163,9 +362,9 @@ def get_queue_snapshot() -> dict:
             "inspect_ok": False,
         }
 
-    active_jobs = _count_inspected_tasks(active)
-    reserved_jobs = _count_inspected_tasks(reserved)
-    scheduled_jobs = _count_inspected_tasks(scheduled)
+    active_jobs = _count_generation_tasks(active)
+    reserved_jobs = _count_generation_tasks(reserved)
+    scheduled_jobs = _count_generation_tasks(scheduled)
     queued_jobs = reserved_jobs + scheduled_jobs
     total_jobs = active_jobs + queued_jobs
     return {
@@ -229,6 +428,9 @@ def _db_result_payload(session: Session, exam: Exam, include_answers: bool = Fal
         "failures": summary["failures"],
         "mcqs": _mcqs_for_view(mcqs, include_answers),
         "include_answers": include_answers,
+        "resource_capacity_jobs": resource_capacity_jobs(),
+        "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "question_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
@@ -259,6 +461,9 @@ def _db_terminal_status_payload(task_id: str) -> Optional[dict]:
                 "accepted": exam.accepted_questions or exam.n_questions,
                 "failed": exam.failed_questions,
                 "failures": summary["failures"],
+                "resource_capacity_jobs": resource_capacity_jobs(),
+                "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+                "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
                 "question_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
                 "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
                 "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
@@ -272,6 +477,24 @@ def _db_terminal_status_payload(task_id: str) -> Optional[dict]:
                 "source": "db",
             }
     return None
+
+
+def _resource_status_payload(meta: dict | None) -> dict:
+    meta = meta or {}
+    keys = (
+        "resource_status",
+        "resource_message",
+        "resource_queue_reason",
+        "resource_capacity_jobs",
+        "allocated_question_slots_at_start",
+        "expected_question_slots_when_running",
+        "resource_slots_total",
+        "dynamic_concurrency",
+        "runtime_concurrent_traces",
+        "runtime_concurrent_users",
+        "effective_question_concurrency",
+    )
+    return {key: meta.get(key) for key in keys if meta.get(key) is not None}
 
 
 def _json_loads(value: str | None, default: Any) -> Any:
@@ -332,11 +555,14 @@ def _score_practice_attempt(mcqs: list[dict], answers: dict[str, str]) -> tuple[
             "selected": selected,
             "correct_answers": correct_answers,
             "is_correct": is_correct,
-            "correct_rationale": mcq.get("correct_rationale", ""),
+            "explanation": mcq.get("explanation", {}).get("correct_answer_rationale", ""), 
             "topic": mcq.get("topic", ""),
             "chapter_id": mcq.get("chapter_id", ""),
             "chapter_label": _chapter_label(mcq.get("chapter_id")),
-            "difficulty_label": mcq.get("difficulty_label", mcq.get("difficulty", "G2")),
+            "difficulty_label": mcq.get(
+                "difficulty_label",
+                mcq.get("difficulty", "G2")
+            ),
         })
     return n_correct, details
 
@@ -374,13 +600,66 @@ def _build_ranked_stats(stats: dict[str, dict]) -> list[dict]:
         })
     return sorted(rows, key=lambda row: (row["wrong"], row["wrong_rate"]), reverse=True)
 
+
+def _same_exam_display_name(left: str, right: str) -> bool:
+    return format_exam_display_name(left).casefold() == format_exam_display_name(right).casefold()
+
+
+def _exam_display_name_exists(session: Session, username: str, display_name: str) -> bool:
+    return any(
+        _same_exam_display_name(exam.exam_name, display_name)
+        for exam in session.exec(select(Exam).where(Exam.created_by == username)).all()
+    )
+
+
+def _task_output_name(output_name: str, task_id: str) -> str:
+    base_name = (output_name or "exam").strip() or "exam"
+    return f"{base_name}_{task_id[:8]}"
+
 # ── Auth endpoints ────────────────────────────────────────────────
+@app.post("/auth/register", status_code=201)
+def register(req: RegisterRequest):
+    """Đăng ký tài khoản user mới (public endpoint, không cần auth)."""
+    try:
+        user_info = register_user(
+            username=req.username,
+            password=req.password,
+            full_name=req.full_name or "",
+        )
+        log.info("register_success", username=user_info["username"])
+        return {"message": "Đăng ký thành công", "username": user_info["username"]}
+    except UsernameAlreadyExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @app.post("/auth/login", response_model=LoginResponse)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = get_users_db().get(form_data.username)
-    if not user or not pwd_context.verify(form_data.password, user["hashed_password"]):
-        log.warning("login_failed", username=form_data.username)
-        raise HTTPException(status_code=401, detail="Sai username hoặc password")
+    from api.core.auth import _get_user_from_db
+    username = (form_data.username or "").strip()
+    password = form_data.password or ""
+    if not username:
+        raise HTTPException(status_code=422, detail="Vui lòng nhập tên đăng nhập")
+    if not password:
+        raise HTTPException(status_code=422, detail="Vui lòng nhập mật khẩu")
+
+    user = _get_user_from_db(username, include_inactive=True)
+    if not user:
+        log.warning("login_failed_user_not_found", username=username)
+        raise HTTPException(
+            status_code=401,
+            detail="Tài khoản không tồn tại. Vui lòng kiểm tra tên đăng nhập.",
+        )
+    if not user.get("is_active", True):
+        log.warning("login_failed_inactive", username=username)
+        raise HTTPException(
+            status_code=403,
+            detail="Tài khoản đã bị vô hiệu hoá. Vui lòng liên hệ quản trị viên.",
+        )
+    if not pwd_context.verify(password, user["hashed_password"]):
+        log.warning("login_failed_bad_password", username=username)
+        raise HTTPException(status_code=401, detail="Mật khẩu không đúng. Vui lòng thử lại.")
 
     access_token = create_token(
         {"sub": user["username"], "role": user["role"]},
@@ -390,6 +669,15 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         {"sub": user["username"], "type": "refresh"},
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     )
+
+    # Đăng ký session để hỗ trợ logout & force-logout
+    try:
+        jti = decode_token(access_token).get("jti")
+        if jti:
+            register_session(user["username"], jti)
+    except Exception:
+        pass
+
     log.info("login_success", username=user["username"], role=user["role"])
     return LoginResponse(
         access_token=access_token,
@@ -403,10 +691,68 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 def get_me(user: dict = Depends(get_current_user)):
     return {"username": user["username"], "role": user["role"], "full_name": user["full_name"]}
 
+@app.post("/auth/logout")
+def logout(
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Logout: blacklist token hiện tại để nó không dùng được nữa dù chưa hết hạn."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            token = auth_header[7:]
+            payload = decode_token(token)
+            jti = payload.get("jti")
+            exp_ts = payload.get("exp")
+            if jti and exp_ts:
+                exp_dt = datetime.utcfromtimestamp(exp_ts)
+                blacklist_token(jti, exp_dt)
+        except Exception:
+            pass  # token invalid hoặc Redis lỗi → vẫn return 200
+    log.info("logout", username=user["username"])
+    return {"message": "Đăng xuất thành công"}
+
+@app.post("/auth/logout-all")
+def logout_all(user: dict = Depends(get_current_user)):
+    """Logout tất cả sessions của user (force logout on all devices)."""
+    count = invalidate_user_sessions(user["username"])
+    log.info("logout_all", username=user["username"], sessions_revoked=count)
+    return {"message": f"Đã đăng xuất {count} session", "sessions_revoked": count}
+
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.0", "service": "MCQGen API"}
+    cache_status  = cache_health()
+    session_status = session_health()
+    all_ok = cache_status["status"] == "ok" and session_status["status"] == "ok"
+    return {
+        "status":  "ok" if all_ok else "degraded",
+        "version": "2.0",
+        "service": "MCQGen API",
+        "components": {
+            "cache":   cache_status,
+            "session": session_status,
+        },
+        "concurrency": {
+            "resource_capacity_jobs": resource_capacity_jobs(),
+            "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+            "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
+            "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+            "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
+            "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+            "total_llm_slots": configured_total_llm_slots(),
+            "autotune": settings.MCQGEN_CONCURRENCY_AUTOTUNE,
+            "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+            "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+            "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
+            "celery_queue_high": settings.CELERY_QUEUE_HIGH,
+            "celery_queue_low": settings.CELERY_QUEUE_LOW,
+            "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+            "app_env": settings.APP_ENV,
+            "trace_run_type": settings.TRACE_RUN_TYPE,
+            "load_test_id": settings.LOAD_TEST_ID,
+        },
+    }
 
 @app.get("/queue/status")
 def queue_status(user: dict = Depends(get_current_user)):
@@ -418,16 +764,26 @@ def queue_status(user: dict = Depends(get_current_user)):
         "queued_jobs":        queue["queued_jobs"],
         "reserved_jobs":      queue["reserved_jobs"],
         "scheduled_jobs":     queue["scheduled_jobs"],
-        "estimated_wait_min": depth * QUEUE_MIN_PER_JOB,
+        "estimated_wait_min": estimate_queue_wait_minutes(depth),
         "status":             "busy" if depth > 0 else "idle",
         "inspect_ok":         queue["inspect_ok"],
+        "celery_queue_high": settings.CELERY_QUEUE_HIGH,
+        "celery_queue_low": settings.CELERY_QUEUE_LOW,
+        "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+        "resource_capacity_jobs": resource_capacity_jobs(),
+        "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency": settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+        "total_llm_slots": configured_total_llm_slots(),
+        "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+        "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
     }
 
 @app.post("/admin/warmup")
-def admin_warmup(user: dict = Depends(require_role("teacher"))):
+def admin_warmup(user: dict = Depends(require_role("admin"))):
     task = warmup_system.delay()
     log.info("warmup_submitted", task_id=task.id, user=user["username"])
     return {
@@ -438,61 +794,117 @@ def admin_warmup(user: dict = Depends(require_role("teacher"))):
 
 # ── Generation ────────────────────────────────────────────────────
 @app.post("/generate")
-@limiter.limit(settings.RATE_LIMIT_TEACHER)
+@limiter.limit(settings.RATE_LIMIT_USER)
 def generate(
     request: Request,
     req: GenerateRequest,
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     topics = [t.model_dump() for t in req.topics]
     n_q    = sum(t["n"] for t in topics)
     retrieval_mode = req.retrieval_mode.lower()
-    display_name = format_exam_display_name(req.display_name or req.output_name)
+    requested_display_name = format_exam_display_name(req.display_name or req.output_name)
     if retrieval_mode not in {"fast", "auto", "quality"}:
         raise HTTPException(status_code=422, detail="retrieval_mode must be fast, auto, or quality")
 
-    existing_exam = next(
-        (
-            exam
-            for exam in session.exec(
-                select(Exam).where(Exam.created_by == user["username"])
-            ).all()
-            if format_exam_display_name(exam.exam_name).casefold() == display_name.casefold()
-        ),
-        None,
-    )
-    if existing_exam:
-        raise HTTPException(
-            status_code=409,
-            detail=f'Tên đề thi "{display_name}" đã tồn tại trong lịch sử. Vui lòng chọn tên khác hoặc xoá đề cũ trước.',
-        )
+    display_name = requested_display_name
+    exam_name_was_deduplicated = False
+
+    # ── Cache dedup: kiểm tra xem config này đã được generate thành công chưa ──
+    cached_task_id = get_cached_task_id(topics, retrieval_mode)
+    if cached_task_id:
+        cached_exam = session.exec(select(Exam).where(Exam.task_id == cached_task_id)).first()
+        if (
+            cached_exam
+            and cached_exam.status == "success"
+            and cached_exam.created_by == user["username"]
+            and _same_exam_display_name(cached_exam.exam_name, display_name)
+        ):
+            log.info(
+                "generation_cache_hit",
+                cached_task_id=cached_task_id,
+                user=user["username"],
+                n_questions=n_q,
+            )
+            summary = exam_summary(cached_exam)
+            return {
+                "task_id":              cached_task_id,
+                "status":               "success",
+                "source":               "cache",
+                "display_name":         summary["exam_name"],
+                "accepted":             cached_exam.accepted_questions or cached_exam.n_questions,
+                "failed":               cached_exam.failed_questions,
+                "n_questions":          cached_exam.n_questions,
+                "retrieval_mode":       retrieval_mode,
+                "message":              "Kết quả được lấy từ cache (cùng cấu hình đã generate trước đó)",
+            }
 
     task_id = str(uuid.uuid4())
+    output_name = _task_output_name(req.output_name, task_id)
+    session_id = f"{user['username']}:exam:{task_id}"
+    use_case = "generate_exam"
+    load_snapshot = register_generation_start(
+        task_id=task_id,
+        user_id=user["username"],
+        session_id=session_id,
+        use_case=use_case,
+        output_name=output_name,
+    )
+    langfuse_tags = load_tags(use_case=use_case, snapshot=load_snapshot)
     trace_payload = {
         "task_id": task_id,
+        "session_id": session_id,
+        "use_case": use_case,
         "user_id": user["username"],
+        "user_role": user.get("role"),
         "role": user.get("role"),
         "exam_name": display_name,
-        "output_name": req.output_name,
+        "requested_exam_name": requested_display_name,
+        "exam_name_was_deduplicated": exam_name_was_deduplicated,
+        "output_name": output_name,
+        "requested_output_name": req.output_name,
         "n_questions": n_q,
         "topic_count": len(topics),
         "retrieval_mode": retrieval_mode,
+        "resource_capacity_jobs": resource_capacity_jobs(),
+        "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
+        "question_concurrency_per_job": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
+        "llm_concurrency_per_job": settings.MCQGEN_LLM_MAX_CONCURRENCY,
+        "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
+        "total_llm_slots": configured_total_llm_slots(),
+        "dynamic_concurrency": settings.MCQGEN_DYNAMIC_CONCURRENCY,
+        "global_slot_guard": settings.MCQGEN_GLOBAL_SLOT_GUARD,
+        "global_llm_slots": settings.MCQGEN_GLOBAL_LLM_SLOTS,
+        "app_env": settings.APP_ENV,
+        "trace_run_type": settings.TRACE_RUN_TYPE,
+        "load_test_id": settings.LOAD_TEST_ID,
+        "celery_queue_high": settings.CELERY_QUEUE_HIGH,
+        "celery_worker_namespace": settings.CELERY_WORKER_NAMESPACE,
+        "langfuse_tags": langfuse_tags,
+        **load_metadata(
+            load_snapshot,
+            target_concurrency=settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        ),
         "topics": topics,
     }
 
     with langfuse_attributes(
         user_id=user["username"],
-        session_id=task_id,
-        tags=["mcqgen", "api", "generate"],
+        session_id=session_id,
+        tags=langfuse_tags,
         metadata=trace_payload,
+        trace_name="mcqgen.generate_exam",
     ):
         with langfuse_observation(
             "api.generate.submit",
             as_type="span",
             input={
-                "output_name": req.output_name,
+                "output_name": output_name,
+                "requested_output_name": req.output_name,
                 "display_name": display_name,
+                "requested_display_name": requested_display_name,
                 "retrieval_mode": retrieval_mode,
                 "topics": topics,
             },
@@ -500,14 +912,40 @@ def generate(
         ) as lf_span:
             queue = get_queue_snapshot()
             jobs_ahead = queue["total_jobs"]
-
-            estimated_runtime_min = estimate_generation_minutes(n_q, retrieval_mode)
-            queue_wait_min = jobs_ahead * QUEUE_MIN_PER_JOB
-            estimated_total_min = estimated_runtime_min + queue_wait_min
-            task = run_mcq_pipeline.apply_async(
-                args=[topics, req.output_name, retrieval_mode, trace_payload],
-                task_id=task_id,
+            concurrency_at_submit = jobs_ahead + 1
+            resource_plan = build_resource_plan(queue, load_snapshot)
+            trace_payload.update(
+                {
+                    "active_jobs_at_submit": queue["active_jobs"],
+                    "queued_jobs_at_submit": queue["queued_jobs"],
+                    "queue_depth_at_submit": jobs_ahead,
+                    "concurrency_at_submit": concurrency_at_submit,
+                    "load_scenario": (
+                        "single_user"
+                        if concurrency_at_submit <= 1
+                        else "concurrent_users"
+                    ),
+                    **resource_plan,
+                }
             )
+
+            estimated_runtime_min = estimate_generation_minutes(
+                n_q,
+                retrieval_mode,
+                active_generation_jobs=resource_plan["projected_running_jobs_for_slots"],
+            )
+            queue_wait_min = estimate_queue_wait_minutes(jobs_ahead)
+            queue_wait_ms = queue_wait_min * 60 * 1000
+            estimated_total_min = estimated_runtime_min + queue_wait_min
+            trace_payload["queue_wait_ms"] = queue_wait_ms
+            try:
+                task = run_mcq_pipeline.apply_async(
+                    args=[topics, output_name, retrieval_mode, trace_payload],
+                    task_id=task_id,
+                )
+            except Exception:
+                finish_generation(task_id)
+                raise
 
             update_langfuse_observation(
                 lf_span,
@@ -517,6 +955,12 @@ def generate(
                     "active_jobs": queue["active_jobs"],
                     "queued_jobs": queue["queued_jobs"],
                     "estimated_total_min": estimated_total_min,
+                    "concurrency_at_submit": concurrency_at_submit,
+                    "load_scenario": trace_payload["load_scenario"],
+                    "resource_status": resource_plan["resource_status"],
+                    "resource_message": resource_plan["resource_message"],
+                    "allocated_question_slots_at_start": resource_plan["allocated_question_slots_at_start"],
+                    "expected_question_slots_when_running": resource_plan["expected_question_slots_when_running"],
                 },
                 metadata={
                     **trace_payload,
@@ -539,6 +983,16 @@ def generate(
             session.add(exam)
             session.commit()
 
+    # Lưu context: user vừa tạo một đề thi (dùng cho future multi-turn interactions)
+    try:
+        append_user_context(
+            user["username"],
+            "user",
+            f"Tạo đề thi '{display_name}' với {n_q} câu, mode={retrieval_mode}",
+        )
+    except Exception:
+        pass
+
     log.info("job_submitted",
         task_id=task.id,
         user=user["username"],
@@ -551,6 +1005,10 @@ def generate(
     return {
         "task_id":            task.id,
         "status":             "queued",
+        "display_name":       display_name,
+        "requested_display_name": requested_display_name,
+        "exam_name_was_deduplicated": exam_name_was_deduplicated,
+        "output_name":        output_name,
         "queue_position":     jobs_ahead + 1,
         "jobs_ahead":         jobs_ahead,
         "active_jobs":        queue["active_jobs"],
@@ -561,10 +1019,23 @@ def generate(
         "queue_wait_min":     queue_wait_min,
         "n_questions":        n_q,
         "retrieval_mode":     retrieval_mode,
+        "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+        "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
         "generation_concurrency": settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
         "llm_concurrency":    settings.MCQGEN_LLM_MAX_CONCURRENCY,
         "vllm_max_num_seqs":  settings.VLLM_MAX_NUM_SEQS,
-        "message":            f"Generating {n_q} MCQs — estimated ~{estimated_total_min} min",
+        "total_llm_slots": configured_total_llm_slots(),
+        "resource_status":    resource_plan["resource_status"],
+        "resource_queue_reason": resource_plan["resource_queue_reason"],
+        "resource_message":   resource_plan["resource_message"],
+        "resource_capacity_jobs": resource_plan["resource_capacity_jobs"],
+        "running_generation_jobs_at_start": resource_plan["running_generation_jobs_at_start"],
+        "queued_generation_jobs_at_start": resource_plan["queued_generation_jobs_at_start"],
+        "will_queue_due_to_resources": resource_plan["will_queue_due_to_resources"],
+        "allocated_question_slots_at_start": resource_plan["allocated_question_slots_at_start"],
+        "expected_question_slots_when_running": resource_plan["expected_question_slots_when_running"],
+        "resource_slots_total": resource_plan["resource_slots_total"],
+        "message":            resource_plan["resource_message"],
     }
 
 @app.get("/status/{task_id}")
@@ -599,9 +1070,12 @@ def get_status(
             "step":             meta.get("step", ""),
             "current_question": meta.get("current_question", 0),
             "total_questions":  meta.get("total_questions", 0),
+            "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+            "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
             "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
             "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
             "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+            **_resource_status_payload(meta),
         }
     elif result.state == "SUCCESS":
         data = result.result or {}
@@ -615,9 +1089,13 @@ def get_status(
             "accepted": data.get("accepted", 0),
             "failed":   data.get("failed", 0),
             "failures": data.get("failures", []),
+            "resource_capacity_jobs": resource_capacity_jobs(),
+            "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+            "celery_generation_concurrency": data.get("celery_generation_concurrency", settings.CELERY_GENERATION_CONCURRENCY),
             "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
             "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
             "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+            **_resource_status_payload(data),
         }
         if data.get("type") == "warmup":
             payload.update({
@@ -658,6 +1136,8 @@ def get_results(
             "failures": data.get("failures", []) if isinstance(data, dict) else [],
             "mcqs": _mcqs_for_view(mcqs, include_answers),
             "include_answers": include_answers,
+            "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+            "celery_generation_concurrency": data.get("celery_generation_concurrency", settings.CELERY_GENERATION_CONCURRENCY) if isinstance(data, dict) else settings.CELERY_GENERATION_CONCURRENCY,
             "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS) if isinstance(data, dict) else settings.MCQGEN_MAX_CONCURRENT_QUESTIONS,
             "llm_concurrency": data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY) if isinstance(data, dict) else settings.MCQGEN_LLM_MAX_CONCURRENCY,
             "vllm_max_num_seqs": settings.VLLM_MAX_NUM_SEQS,
@@ -856,7 +1336,7 @@ def cancel_job(
 # ── History ───────────────────────────────────────────────────────
 @app.get("/history")
 def get_history(
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     exams = session.exec(
@@ -875,14 +1355,14 @@ def get_history(
 @app.delete("/history/{task_id}")
 def delete_history_item(
     task_id: str,
-    user: dict = Depends(require_role("teacher")),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    exam = session.exec(
-        select(Exam)
-        .where(Exam.task_id == task_id)
-        .where(Exam.created_by == user["username"])
-    ).first()
+    # User chỉ xoá được exam của chính mình; admin xoá được của bất kỳ ai
+    query = select(Exam).where(Exam.task_id == task_id)
+    if user["role"] != "admin":
+        query = query.where(Exam.created_by == user["username"])
+    exam = session.exec(query).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
@@ -975,9 +1455,13 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "step":             meta.get("step", ""),
                     "current_question": meta.get("current_question", 0),
                     "total_questions":  meta.get("total_questions", 0),
+                    "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+                    "resource_capacity_jobs": resource_capacity_jobs(),
+                    "celery_generation_concurrency": settings.CELERY_GENERATION_CONCURRENCY,
                     "question_concurrency": meta.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
                     "llm_concurrency":      meta.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
                     "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+                    **_resource_status_payload(meta),
                 })
             elif result.state == "SUCCESS":
                 data = result.result or {}
@@ -993,9 +1477,13 @@ async def ws_progress(websocket: WebSocket, task_id: str):
                     "accepted": data.get("accepted", 0),
                     "failed":   data.get("failed", 0),
                     "failures": data.get("failures", []),
+                    "resource_capacity_jobs": resource_capacity_jobs(),
+                    "target_concurrent_users": settings.MCQGEN_TARGET_CONCURRENT_USERS,
+                    "celery_generation_concurrency": data.get("celery_generation_concurrency", settings.CELERY_GENERATION_CONCURRENCY),
                     "question_concurrency": data.get("question_concurrency", settings.MCQGEN_MAX_CONCURRENT_QUESTIONS),
                     "llm_concurrency":      data.get("llm_concurrency", settings.MCQGEN_LLM_MAX_CONCURRENCY),
                     "vllm_max_num_seqs":    settings.VLLM_MAX_NUM_SEQS,
+                    **_resource_status_payload(data),
                 })
                 break
             elif result.state == "FAILURE":
@@ -1006,3 +1494,271 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         log.info("websocket_disconnected", task_id=task_id)
+
+
+# ── Session context ───────────────────────────────────────────────
+@app.get("/session/context")
+def get_my_context(user: dict = Depends(get_current_user)):
+    """Lấy lịch sử interaction context của user hiện tại."""
+    context = get_user_context(user["username"])
+    return {"username": user["username"], "context": context, "count": len(context)}
+
+
+@app.delete("/session/context")
+def clear_my_context(user: dict = Depends(get_current_user)):
+    """Xoá toàn bộ conversation context của user."""
+    clear_user_context(user["username"])
+    log.info("context_cleared", username=user["username"])
+    return {"message": "Context đã được xoá"}
+
+
+# ── Admin: User Management ────────────────────────────────────────
+def _user_stats(session: Session, username: str) -> dict:
+    """Tổng hợp thống kê sử dụng của một user."""
+    exam_count = session.exec(
+        select(func.count(Exam.id)).where(Exam.created_by == username)
+    ).one() or 0
+
+    success_exams = session.exec(
+        select(func.count(Exam.id))
+        .where(Exam.created_by == username)
+        .where(Exam.status == "success")
+    ).one() or 0
+
+    attempt_count = session.exec(
+        select(func.count(QuizAttempt.id)).where(QuizAttempt.student_id == username)
+    ).one() or 0
+
+    avg_score_row = session.exec(
+        select(func.avg(QuizAttempt.score)).where(QuizAttempt.student_id == username)
+    ).one()
+    avg_score = round(float(avg_score_row), 2) if avg_score_row else None
+
+    last_exam = session.exec(
+        select(Exam.created_at)
+        .where(Exam.created_by == username)
+        .order_by(Exam.created_at.desc())
+        .limit(1)
+    ).first()
+
+    last_attempt = session.exec(
+        select(QuizAttempt.submitted_at)
+        .where(QuizAttempt.student_id == username)
+        .order_by(QuizAttempt.submitted_at.desc())
+        .limit(1)
+    ).first()
+
+    last_active = None
+    candidates = [ts for ts in [last_exam, last_attempt] if ts is not None]
+    if candidates:
+        last_active = max(candidates).isoformat()
+
+    return {
+        "exam_count":    exam_count,
+        "success_exams": success_exams,
+        "attempt_count": attempt_count,
+        "avg_score":     avg_score,
+        "last_active":   last_active,
+    }
+
+
+@app.get("/admin/users")
+def admin_list_users(
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Danh sách tất cả users với thống kê sử dụng."""
+    users = session.exec(
+        select(UserAccount).order_by(UserAccount.created_at.desc())
+    ).all()
+    result = []
+    for u in users:
+        stats = _user_stats(session, u.username)
+        result.append({
+            "username":    u.username,
+            "full_name":   u.full_name,
+            "role":        u.role,
+            "created_at":  u.created_at.isoformat() if u.created_at else None,
+            "is_active":   u.is_active,
+            **stats,
+        })
+    return {"users": result, "total": len(result)}
+
+
+@app.patch("/admin/users/{username}/status")
+def admin_toggle_user_status(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Kích hoạt / vô hiệu hoá tài khoản user."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    if user.role == "admin":
+        raise HTTPException(status_code=403, detail="Không thể vô hiệu hoá tài khoản admin")
+    user.is_active = not user.is_active
+    session.add(user)
+    session.commit()
+    action = "activated" if user.is_active else "deactivated"
+    log.info(f"admin_user_{action}", target=username, by=admin["username"])
+    return {
+        "username":  user.username,
+        "is_active": user.is_active,
+        "message":   f"Tài khoản đã {'kích hoạt' if user.is_active else 'vô hiệu hoá'}",
+    }
+
+
+@app.delete("/admin/users/{username}")
+def admin_delete_user(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Xoá user và toàn bộ data của họ (exams, attempts)."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    if user.role == "admin":
+        raise HTTPException(status_code=403, detail="Không thể xoá tài khoản admin")
+
+    # Xoá quiz attempts
+    for attempt in session.exec(select(QuizAttempt).where(QuizAttempt.student_id == username)).all():
+        session.delete(attempt)
+
+    # Xoá questions + exams của user
+    exams = session.exec(select(Exam).where(Exam.created_by == username)).all()
+    for exam in exams:
+        for q in session.exec(select(Question).where(Question.exam_id == exam.id)).all():
+            session.delete(q)
+        session.delete(exam)
+
+    session.delete(user)
+    session.commit()
+
+    # Invalidate sessions của user
+    try:
+        invalidate_user_sessions(username)
+    except Exception:
+        pass
+
+    log.info("admin_user_deleted", target=username, by=admin["username"])
+    return {"username": username, "deleted": True}
+
+
+@app.get("/admin/global-stats")
+def admin_global_stats(
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Thống kê tổng thể toàn hệ thống cho admin dashboard."""
+    total_users      = session.exec(select(func.count(UserAccount.username))).one() or 0
+    active_users     = session.exec(select(func.count(UserAccount.username)).where(UserAccount.is_active == True)).one() or 0
+    total_exams      = session.exec(select(func.count(Exam.id))).one() or 0
+    success_exams    = session.exec(select(func.count(Exam.id)).where(Exam.status == "success")).one() or 0
+    total_questions  = session.exec(select(func.count(Question.id))).one() or 0
+    total_attempts   = session.exec(select(func.count(QuizAttempt.id))).one() or 0
+    avg_quality_row  = session.exec(select(func.avg(Exam.quality_avg)).where(Exam.status == "success")).one()
+    avg_quality      = round(float(avg_quality_row), 3) if avg_quality_row else 0.0
+    queue            = get_queue_snapshot()
+
+    return {
+        "total_users":     total_users,
+        "active_users":    active_users,
+        "total_exams":     total_exams,
+        "success_exams":   success_exams,
+        "total_questions": total_questions,
+        "total_attempts":  total_attempts,
+        "avg_quality":     avg_quality,
+        "queue":           queue,
+    }
+
+
+@app.get("/admin/users/{username}")
+def admin_get_user_detail(
+    username: str,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Chi tiết một user: thông tin tài khoản + lịch sử đề thi + các lần làm bài."""
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+
+    stats = _user_stats(session, username)
+
+    # 10 đề thi gần nhất của user
+    recent_exams = session.exec(
+        select(Exam)
+        .where(Exam.created_by == username)
+        .order_by(Exam.created_at.desc())
+        .limit(10)
+    ).all()
+
+    # 10 lần làm bài gần nhất
+    recent_attempts = session.exec(
+        select(QuizAttempt)
+        .where(QuizAttempt.student_id == username)
+        .order_by(QuizAttempt.submitted_at.desc())
+        .limit(10)
+    ).all()
+
+    return {
+        "username":   user.username,
+        "full_name":  user.full_name,
+        "role":       user.role,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_active":  user.is_active,
+        **stats,
+        "recent_exams": [
+            {
+                "task_id":    e.task_id,
+                "exam_name":  format_exam_display_name(e.exam_name),
+                "status":     e.status,
+                "n_questions": e.n_questions,
+                "quality_avg": e.quality_avg,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in recent_exams
+        ],
+        "recent_attempts": [
+            {
+                "id":          a.id,
+                "exam_id":     a.exam_id,
+                "score":       a.score,
+                "n_correct":   a.n_correct,
+                "n_total":     a.n_total,
+                "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+            }
+            for a in recent_attempts
+        ],
+    }
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@app.post("/admin/users/{username}/reset-password")
+def admin_reset_password(
+    username: str,
+    req: ResetPasswordRequest,
+    admin: dict = Depends(require_role("admin")),
+    session: Session = Depends(get_session),
+):
+    """Admin đặt lại mật khẩu cho user."""
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Mật khẩu phải có ít nhất 6 ký tự")
+    user = session.get(UserAccount, username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User không tồn tại")
+    user.hashed_password = pwd_context.hash(req.new_password)
+    session.add(user)
+    session.commit()
+    # Invalidate tất cả session cũ của user
+    try:
+        invalidate_user_sessions(username)
+    except Exception:
+        pass
+    log.info("admin_password_reset", target=username, by=admin["username"])
+    return {"message": f"Đã đặt lại mật khẩu cho {username}"}

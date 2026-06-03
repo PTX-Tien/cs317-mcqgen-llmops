@@ -20,13 +20,14 @@ from openai import AsyncOpenAI
 import chromadb
 from sentence_transformers import SentenceTransformer
 from .advanced_retrieval import adaptive_retrieve_sw as adaptive_retrieve, emb_model, reranker, collection, sw_collection
+from .math_format import normalize_mcq_math
 from .opening_families import (
     select_opening_family,
     build_opening_style_card,
     build_previous_openings_block,
     extract_opening_prefix,
 )
-from .prompt_loader import load_weak_openings
+from .prompt_loader import load_weak_openings, load_misconception_types
 
 # ── Config ────────────────────────────────────────────────────────
 VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")
@@ -94,6 +95,10 @@ TOPICS = [
 SYSTEM_PROMPT = """Bạn là giảng viên Trường ĐH Công nghệ Thông tin ĐHQG-HCM,
 dạy môn CS116 – Lập trình Python cho Máy học.
 Bạn đang biên soạn câu hỏi trắc nghiệm cho sinh viên đại học."""
+
+# ── Phoenix Tracing ──────────────────────────────────────────────
+from monitoring.setup_tracing import init_tracing
+init_tracing(project_name='mcqgen')
 
 # ── Retrieval setup ───────────────────────────────────────────────
 print("Ready.\n")  # models loaded in advanced_retrieval.py
@@ -341,6 +346,47 @@ async def atimer(name: str, q_id: str):
         dt = time.perf_counter() - t0
         print(f"[TIMING] {q_id} | {name} | {dt:.2f}s")
 
+
+# ── Phase 3: Misconception helpers ────────────────────────────────
+
+def build_misconception_guidance(topic: str) -> str:
+    """Build misconception guidance block for P4 prompt based on topic."""
+    types = load_misconception_types()
+    if not types:
+        return ""
+    topic_lower = topic.lower()
+    # Select relevant misconception types based on topic keywords
+    relevant = []
+    for mt in types:
+        examples_str = " ".join(mt.get("examples", [])).lower()
+        name_str = mt.get("name_vi", "").lower() + " " + mt.get("description", "").lower()
+        # Check if any keyword from topic appears in misconception examples/description
+        topic_words = [w for w in topic_lower.split() if len(w) > 3]
+        if any(w in examples_str or w in name_str for w in topic_words):
+            relevant.append(mt)
+    # If no specific match, use first 4 general types
+    if not relevant:
+        relevant = types[:4]
+    items = []
+    for mt in relevant[:4]:
+        examples = mt.get("examples", [])[:2]
+        ex_str = "; ".join(examples) if examples else ""
+        items.append(f"- {mt['id']} ({mt.get('name_vi','')}): {mt.get('description','')}. Ví dụ: {ex_str}")
+    return "\nCác misconception phổ biến liên quan đến topic này:\n" + "\n".join(items) + "\n"
+
+
+def extract_candidate_texts(raw_candidates: list) -> list[str]:
+    """Extract plain text candidates from P4 output — backward compatible with both list[str] and list[dict]."""
+    texts = []
+    for c in raw_candidates:
+        if isinstance(c, str):
+            texts.append(c)
+        elif isinstance(c, dict):
+            texts.append(c.get("option_text", str(c)))
+        else:
+            texts.append(str(c))
+    return texts
+
 # ── Single MCQ pipeline (5 calls) ─────────────────────────────────
 async def generate_one_mcq(
     topic_cfg: dict,
@@ -390,12 +436,17 @@ async def generate_one_mcq(
             log_llm_parse_error("P1", q_id, raw_p1, p1)
             return None
 
-        # ── Call 2: P4 Gen Distractors ────────────────────────────
-        p4_prompt = build_p4_option_candidates(p1, num_candidates=5)
+        # ── Call 2: P4 Gen Distractors (Phase 3: misconception-guided) ──
+        misconception_guide = build_misconception_guidance(topic)
+        p4_prompt = build_p4_option_candidates(
+            p1, num_candidates=5,
+            misconception_guidance=misconception_guide,
+        )
         async with atimer("P4", q_id):
-            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=512)
+            raw_p4 = await llm(p4_prompt, temperature=0.7, max_tokens=768)
         p4 = parse_json_output(raw_p4)
-        candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
+        raw_candidates = p4.get("candidate_distractors", []) if "error" not in p4 else []
+        candidates = extract_candidate_texts(raw_candidates)
         if not candidates:
             log_llm_parse_error("P4", q_id, raw_p4, p4)
             return None
@@ -454,6 +505,7 @@ async def generate_one_mcq(
                 return None
             p8 = repaired_opening
 
+        p8 = normalize_mcq_math(p8)
         log_mcq_debug(q_id, p8)
 
         # ── Optional Call 7: Eval Overall ─────────────────────────
@@ -480,6 +532,10 @@ async def generate_one_mcq(
         p8["rag_best_score"]  = max(rag_debug.get("top_scores_after_rerank", [0]))
         p8["evaluation"]  = eval_result
         p8["status"]      = "accepted"
+        # ── Propagate diversity metadata from P1 ──
+        for meta_key in ("opening_family", "question_form", "tested_skill"):
+            if meta_key not in p8 and meta_key in p1:
+                p8[meta_key] = p1[meta_key]
         score = eval_result.get("quality_score", 0) if isinstance(eval_result, dict) else 0
         print(f"  ✅ [{q_id}] score={score:.2f} | {topic}")
         return p8

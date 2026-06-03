@@ -1,5 +1,27 @@
 import type { NextConfig } from "next";
+import path from "path";
+
+const configuredAllowedOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const API_BACKEND = process.env.NEXT_PUBLIC_API_BACKEND ?? "http://127.0.0.1:8080";
+
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ['192.168.20.154'],  // Thay bằng IP server thật
+  allowedDevOrigins: Array.from(new Set(configuredAllowedOrigins)),
+  outputFileTracingRoot: path.resolve(__dirname),
+
+  // Browser chỉ cần kết nối UI port; Next.js server-side forward request đến
+  // các service nội bộ có thể bị chặn port từ máy người dùng.
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${API_BACKEND}/:path*`,
+      },
+    ];
+  },
 };
+
 export default nextConfig;

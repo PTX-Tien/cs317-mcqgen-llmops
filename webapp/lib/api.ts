@@ -1,10 +1,43 @@
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+const normalizeUrl = (value?: string) => value?.trim().replace(/\/$/, "") || "";
 
+/**
+ * Auto-detect API base URL.
+ *
+ * HTTP (REST):
+ *   - Luôn dùng /api để Next.js server proxy tới FastAPI nội bộ.
+ *   - Browser chỉ cần truy cập UI port, không cần gọi trực tiếp FastAPI port.
+ *
+ * WebSocket:
+ *   - Luôn dùng port 8080 trực tiếp (Next.js rewrites không hỗ trợ WS)
+ */
+const browserBackendUrl = (kind: "http" | "ws") => {
+  if (typeof window === "undefined") return "";
+  const hostname = window.location.hostname;
+  const httpProto = window.location.protocol.replace(":", "");
+  const wsProto   = window.location.protocol === "https:" ? "wss" : "ws";
+
+  if (kind === "ws") {
+    // WebSocket luôn đi thẳng đến FastAPI (rewrites không support WS)
+    return `${wsProto}://${hostname}:8080`;
+  }
+
+  return `${httpProto}://${window.location.host}/api`;
+};
+
+function resolveApiUrl() {
+  const configured = normalizeUrl(process.env.NEXT_PUBLIC_API_URL);
+  return configured || browserBackendUrl("http") || "http://localhost:8080";
+}
+
+function resolveWsUrl() {
+  const configured = normalizeUrl(process.env.NEXT_PUBLIC_WS_URL);
+  return configured || browserBackendUrl("ws") || "ws://localhost:8080";
+}
 
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: resolveApiUrl(),
   timeout: 30000,
 });
 
@@ -30,4 +63,4 @@ api.interceptors.response.use(
   },
 );
 
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080"
+export const WS_URL = resolveWsUrl()

@@ -1,4 +1,5 @@
 import os
+import socket
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -9,6 +10,13 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 class Settings:
+    # App / tracing context
+    APP_ENV: str = os.getenv("APP_ENV") or os.getenv("ENV") or "prod"
+    TRACE_RUN_TYPE: str = os.getenv("TRACE_RUN_TYPE", "manual")
+    LOAD_TEST_ID: str = os.getenv("LOAD_TEST_ID", "")
+    SERVER_INSTANCE: str = os.getenv("SERVER_INSTANCE") or socket.gethostname()
+    REQUEST_SOURCE: str = os.getenv("REQUEST_SOURCE", "web")
+
     # Auth
     JWT_SECRET:  str = os.getenv("JWT_SECRET", "change-this")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
@@ -23,20 +31,77 @@ class Settings:
     VLLM_MODEL: str = os.getenv("VLLM_MODEL", "mcqgen")
     VLLM_MAX_NUM_SEQS: int = _env_int("VLLM_MAX_NUM_SEQS", 4)
 
-    # Redis
-    CELERY_BROKER:  str = os.getenv("CELERY_BROKER", "redis://localhost:6379/0")
-    CELERY_BACKEND: str = os.getenv("CELERY_BACKEND", "redis://localhost:6379/0")
+    # Redis — broker/backend dùng DB 0/1, cache DB 2, session DB 3
+    REDIS_BASE_URL: str = os.getenv("REDIS_BASE_URL", "redis://localhost:6379")
+    CELERY_BROKER:  str = os.getenv("CELERY_BROKER",  "redis://localhost:6379/0")
+    CELERY_BACKEND: str = os.getenv("CELERY_BACKEND", "redis://localhost:6379/1")
+    REDIS_CACHE_URL:   str = os.getenv("REDIS_CACHE_URL",   "redis://localhost:6379/2")
+    REDIS_SESSION_URL: str = os.getenv("REDIS_SESSION_URL", "redis://localhost:6379/3")
     TASK_RESULT_TTL: int = int(os.getenv("TASK_RESULT_TTL_SECONDS", "86400"))
 
+    # Admin account (auto-created on first startup)
+    ADMIN_USERNAME:   str = os.getenv("ADMIN_USERNAME",   "admin")
+    ADMIN_PASSWORD:   str = os.getenv("ADMIN_PASSWORD",   "admin2026")
+    ADMIN_FULL_NAME:  str = os.getenv("ADMIN_FULL_NAME",  "Administrator")
+
     # Rate limit
-    RATE_LIMIT_TEACHER: str = os.getenv("RATE_LIMIT_TEACHER", "10/hour")
-    RATE_LIMIT_STUDENT: str = os.getenv("RATE_LIMIT_STUDENT", "30/hour")
+    RATE_LIMIT_ADMIN: str = os.getenv("RATE_LIMIT_ADMIN", os.getenv("RATE_LIMIT_TEACHER", "50/hour"))
+    RATE_LIMIT_USER:  str = os.getenv("RATE_LIMIT_USER",  os.getenv("RATE_LIMIT_STUDENT", "20/hour"))
+    # Backward-compat aliases
+    RATE_LIMIT_TEACHER: str = os.getenv("RATE_LIMIT_TEACHER", "50/hour")
+    RATE_LIMIT_STUDENT: str = os.getenv("RATE_LIMIT_STUDENT", "20/hour")
 
     # Pipeline concurrency
+    MCQGEN_RESOURCE_MAX_RUNNING_JOBS: int = min(
+        VLLM_MAX_NUM_SEQS,
+        _env_int("MCQGEN_RESOURCE_MAX_RUNNING_JOBS", VLLM_MAX_NUM_SEQS),
+    )
+    MCQGEN_TARGET_CONCURRENT_USERS: int = _env_int(
+        "MCQGEN_TARGET_CONCURRENT_USERS",
+        MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
+    )
+    CELERY_GENERATION_CONCURRENCY: int = _env_int(
+        "CELERY_GENERATION_CONCURRENCY",
+        MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
+    )
+    CELERY_GENERATION_CONCURRENCY = min(
+        CELERY_GENERATION_CONCURRENCY,
+        MCQGEN_RESOURCE_MAX_RUNNING_JOBS,
+    )
     MCQGEN_MAX_CONCURRENT_QUESTIONS: int = _env_int("MCQGEN_MAX_CONCURRENT_QUESTIONS", 4)
     MCQGEN_LLM_MAX_CONCURRENCY: int = _env_int(
         "MCQGEN_LLM_MAX_CONCURRENCY",
         MCQGEN_MAX_CONCURRENT_QUESTIONS,
     )
+    MCQGEN_CONCURRENCY_AUTOTUNE: str = os.getenv("MCQGEN_CONCURRENCY_AUTOTUNE", "1")
+    MCQGEN_DYNAMIC_CONCURRENCY: str = os.getenv("MCQGEN_DYNAMIC_CONCURRENCY", "1")
+    MCQGEN_GLOBAL_SLOT_GUARD: str = os.getenv("MCQGEN_GLOBAL_SLOT_GUARD", "1")
+    MCQGEN_GLOBAL_LLM_SLOTS: int = min(
+        VLLM_MAX_NUM_SEQS,
+        _env_int("MCQGEN_GLOBAL_LLM_SLOTS", VLLM_MAX_NUM_SEQS),
+    )
+    MCQGEN_LOAD_TRACKING_TTL_SECONDS: int = _env_int(
+        "MCQGEN_LOAD_TRACKING_TTL_SECONDS",
+        6 * 3600,
+    )
+    MCQGEN_DEDUP_HISTORY_LIMIT: int = _env_int("MCQGEN_DEDUP_HISTORY_LIMIT", 500)
+    MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD: str = os.getenv(
+        "MCQGEN_DUPLICATE_SIMILARITY_THRESHOLD",
+        "0.86",
+    )
+    MCQGEN_DEDUP_MIN_CHARS: int = _env_int("MCQGEN_DEDUP_MIN_CHARS", 32)
+
+    # Celery queues
+    CELERY_WORKER_NAMESPACE: str = os.getenv("CELERY_WORKER_NAMESPACE") or os.getenv("USER", "mcqgen")
+    CELERY_QUEUE_NAMESPACE: str = os.getenv("CELERY_QUEUE_NAMESPACE") or CELERY_WORKER_NAMESPACE
+    CELERY_QUEUE_HIGH: str = os.getenv("CELERY_QUEUE_HIGH", f"mcq.{CELERY_QUEUE_NAMESPACE}.high")
+    CELERY_QUEUE_LOW:  str = os.getenv("CELERY_QUEUE_LOW",  f"mcq.{CELERY_QUEUE_NAMESPACE}.low")
+
+    # Cache TTLs (seconds)
+    CACHE_TTL_GENERATION: int = _env_int("CACHE_TTL_GENERATION", 7 * 86400)   # 7 ngày
+    CACHE_TTL_DB_QUERY:   int = _env_int("CACHE_TTL_DB_QUERY",   300)          # 5 phút
+
+    # Session TTLs (seconds)
+    SESSION_CONTEXT_TTL: int = _env_int("SESSION_CONTEXT_TTL", 7 * 86400)     # 7 ngày
 
 settings = Settings()

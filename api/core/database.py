@@ -1,11 +1,41 @@
-from sqlmodel import SQLModel, Field, Session, create_engine, select
+import os
+import uuid
+import json
+import re
 from datetime import datetime
 from typing import Optional
+
+from sqlmodel import SQLModel, Field, Session, create_engine, select
+from sqlalchemy import event
+
 from api.core.config import settings
 from src.mcqgen.math_format import normalize_mcq_math
-import uuid, json, re
 
-engine = create_engine(settings.DATABASE_URL, echo=False)
+engine = create_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+)
+
+# SQLite WAL mode: cho phép concurrent reads từ nhiều API instances
+# không block nhau khi writer đang ghi
+if "sqlite" in settings.DATABASE_URL:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")   # faster writes, safe với WAL
+        cursor.execute("PRAGMA busy_timeout=30000")   # 30s wait thay vì lỗi ngay
+        cursor.close()
+
+class UserAccount(SQLModel, table=True):
+    username:         str      = Field(primary_key=True)
+    hashed_password:  str
+    role:             str      = "user"     # "admin" | "user"
+    full_name:        str      = ""
+    created_at:       datetime = Field(default_factory=datetime.utcnow)
+    is_active:        bool     = True
+
 
 class Exam(SQLModel, table=True):
     id:            str = Field(default_factory=lambda: str(uuid.uuid4())[:8], primary_key=True)
@@ -74,6 +104,12 @@ def format_exam_display_name(value: Optional[str]) -> str:
     if not raw:
         return "Đề thi"
 
+    raw = re.sub(
+        r"(?:\s+-\s+\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}(?:\s+\([0-9a-fA-F]{6}\))?)+$",
+        "",
+        raw,
+    ).strip()
+
     normalized = re.sub(r"[-\s]+", "_", raw).strip("_").lower()
     match = re.fullmatch(r"de_so_(\d+)", normalized)
     if match:
@@ -138,6 +174,34 @@ def _migrate_sqlite_schema():
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrate_sqlite_schema()
+    _ensure_admin_account()
+
+
+def _ensure_admin_account():
+    """Tạo admin account nếu chưa có — chạy mỗi lần startup."""
+    from passlib.context import CryptContext
+    _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin2026")
+    admin_fullname = os.getenv("ADMIN_FULL_NAME", "Administrator")
+
+    with Session(engine) as s:
+        existing = s.get(UserAccount, admin_username)
+        if existing is None:
+            s.add(UserAccount(
+                username=admin_username,
+                hashed_password=_pwd.hash(admin_password),
+                role="admin",
+                full_name=admin_fullname,
+                is_active=True,
+            ))
+            s.commit()
+        elif existing.role != "admin":
+            # Đảm bảo account admin luôn có đúng role
+            existing.role = "admin"
+            s.add(existing)
+            s.commit()
 
 
 def question_from_mcq(exam_id: str, mcq: dict, position: int = 0) -> Question:
@@ -207,6 +271,43 @@ def get_exam_mcqs(session: Session, exam: Exam) -> list[dict]:
         .order_by(Question.position, Question.question_id)
     ).all()
     return [question_to_mcq(question) for question in questions]
+
+
+def get_user_question_history(
+    session: Session,
+    username: str,
+    limit: int = 500,
+) -> list[dict]:
+    """Return recent successful questions for per-user duplicate prevention."""
+    exams = session.exec(
+        select(Exam)
+        .where(Exam.created_by == username)
+        .where(Exam.status == "success")
+        .order_by(Exam.completed_at.desc(), Exam.created_at.desc())
+    ).all()
+
+    history: list[dict] = []
+    for exam in exams:
+        questions = session.exec(
+            select(Question)
+            .where(Question.exam_id == exam.id)
+            .order_by(Question.position, Question.question_id)
+        ).all()
+        for question in questions:
+            history.append(
+                {
+                    "question_id": question.question_id,
+                    "question_text": question.question_text,
+                    "topic": question.topic,
+                    "chapter_id": question.chapter_id,
+                    "exam_id": exam.id,
+                    "exam_name": format_exam_display_name(exam.exam_name),
+                    "created_at": exam.created_at.isoformat(),
+                }
+            )
+            if len(history) >= limit:
+                return history
+    return history
 
 
 def persist_generation_success(session: Session, task_id: str, result: dict) -> Optional[Exam]:

@@ -13,7 +13,7 @@ Bạn cần chứng minh 2 ý chính:
 1. **Dự án thật sự đang dùng vLLM**
    - Có vLLM server chạy riêng ở `localhost:8000`.
    - Pipeline gọi LLM qua OpenAI-compatible API của vLLM.
-   - Prometheus/Grafana scrape được metrics từ `/metrics` của vLLM.
+   - vLLM expose `/metrics` trực tiếp để kiểm tra serving metrics khi cần benchmark.
 
 2. **vLLM có hiệu quả trong dự án**
    - Hiệu quả chính cần chứng minh: **serving throughput tốt hơn khi có nhiều LLM calls đồng thời**.
@@ -211,19 +211,15 @@ llm_client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="x")
 
 HyDE generation cũng có thể tạo thêm LLM calls tới vLLM.
 
-### 2.6 Prometheus/Grafana đã có monitoring cho vLLM
+### 2.6 vLLM metrics kiểm tra trực tiếp khi benchmark
 
-Trong `monitoring/prometheus/prometheus.yml`:
+vLLM expose metrics ở endpoint `/metrics`. Khi benchmark, kiểm tra trực tiếp:
 
-```yaml
-scrape_configs:
-  - job_name: "vllm"
-    static_configs:
-      - targets: ["host.docker.internal:8000"]
-    metrics_path: "/metrics"
+```bash
+curl -s http://localhost:8000/metrics | grep 'vllm:'
 ```
 
-Trong Grafana dashboard `monitoring/grafana/provisioning/dashboards/mcqgen.json`, có các panel:
+Các metric nên quan sát:
 
 | Panel | PromQL |
 |---|---|
@@ -265,8 +261,8 @@ Hiệu quả cần đo bằng throughput, latency, wall-clock time, GPU memory/K
 | p50/p95 latency | Benchmark client | Độ trễ trung bình và tail latency |
 | Accepted MCQs | Output pipeline | Đảm bảo tăng tốc không làm hỏng quality |
 | Failed MCQs | Output pipeline | Kiểm tra lỗi parse/quality |
-| GPU KV cache usage | Grafana/Prometheus | Chứng minh vLLM đang dùng KV cache |
-| Requests running/waiting | Grafana/Prometheus | Chứng minh batching/queue đang diễn ra |
+| GPU KV cache usage | vLLM `/metrics` hoặc log benchmark | Chứng minh vLLM đang dùng KV cache |
+| Requests running/waiting | vLLM `/metrics` hoặc log benchmark | Chứng minh batching/queue đang diễn ra |
 | GPU memory/utilization | `nvidia-smi` | Chứng minh GPU đang phục vụ inference |
 
 ### 4.2 Metric nên có nếu đủ thời gian
@@ -486,7 +482,7 @@ Nếu concurrency tăng từ 1 → 4 và:
 - Tokens/s tăng,
 - Wall-clock time giảm,
 - GPU KV cache usage tăng,
-- Requests running trên Grafana tăng,
+- Requests running trong vLLM metrics tăng,
 
 thì đây là bằng chứng rõ ràng rằng vLLM đang xử lý concurrent serving hiệu quả hơn single-request/sequential mode.
 
@@ -776,7 +772,7 @@ Nếu không đủ thời gian, dùng Baseline A và nói rõ:
 | Terminal 1 | vLLM server log |
 | Terminal 2 | Chạy benchmark/pipeline |
 | Terminal 3 | `watch -n 1 nvidia-smi` |
-| Browser | Grafana dashboard |
+| Browser | Langfuse traces hoặc report benchmark |
 
 ### 7.2 Kịch bản demo live
 
@@ -810,7 +806,7 @@ python bench_vllm_visible.py --num-requests 40 --concurrency 4
 
 Nói:
 
-> Khi tăng concurrency, ta kỳ vọng throughput tăng và Grafana sẽ thấy request running/KV cache/token throughput thay đổi.
+> Khi tăng concurrency, ta kỳ vọng throughput tăng và vLLM metrics sẽ thấy request running/KV cache/token throughput thay đổi.
 
 #### Bước 4 — Chạy full pipeline
 
@@ -829,7 +825,7 @@ Nói:
 |---|---|
 | `/v1/models` output | Chứng minh model served by vLLM |
 | `/metrics` output | Chứng minh observability |
-| Grafana during benchmark | Thấy request running/KV cache/tokens/s |
+| vLLM metrics during benchmark | Thấy request running/KV cache/tokens/s |
 | Terminal benchmark summary | Thấy throughput/latency |
 | Pipeline sequential summary | Baseline |
 | Pipeline async summary | Result sau khi dùng vLLM hiệu quả |
@@ -862,7 +858,7 @@ Tạo file `results/vllm_demo/summary.md` sau khi chạy.
 - `/health`: pass/fail
 - `/v1/models`: pass/fail
 - `/metrics`: pass/fail
-- Grafana dashboard: pass/fail
+- vLLM metrics snapshot: pass/fail
 
 ## Experiment 2: LLM-only concurrency benchmark
 
@@ -918,7 +914,7 @@ mkdir -p results/vllm_demo
 - [ ] Lưu output `/v1/models`.
 - [ ] Lưu output `/metrics`.
 - [ ] Lưu log vLLM.
-- [ ] Chụp Grafana dashboard.
+- [ ] Lưu snapshot vLLM metrics.
 
 ### Phase 2 — Benchmark LLM-only
 
@@ -954,7 +950,7 @@ mkdir -p results/vllm_demo
 - [ ] 1 slide architecture project.
 - [ ] 1 slide benchmark design.
 - [ ] 1 slide kết quả bảng.
-- [ ] 1 slide Grafana screenshot.
+- [ ] 1 slide vLLM metrics snapshot.
 - [ ] 1 slide limitations/future work.
 
 ---
@@ -976,7 +972,7 @@ Có 4 bằng chứng:
 1. `start_system.sh` chạy `vllm serve`.
 2. Pipeline dùng `AsyncOpenAI(base_url="http://localhost:8000/v1")`.
 3. `/v1/models` trả về model `mcqgen`.
-4. `/metrics` và Grafana có metric `vllm:*`.
+4. `/metrics` có metric `vllm:*`.
 
 ### Q4. Nếu async nhanh hơn, làm sao biết đó là nhờ vLLM chứ không chỉ nhờ asyncio?
 
@@ -1022,7 +1018,7 @@ Cách xử lý:
 - Tăng prompt/output length.
 - Sweep concurrency.
 - Sweep `max_num_seqs`.
-- Quan sát Grafana và `nvidia-smi`.
+- Quan sát vLLM `/metrics` và `nvidia-smi`.
 
 ---
 
@@ -1035,7 +1031,7 @@ Cách xử lý:
 | Output length khác nhau | Latency khó so sánh | Cố định `max_tokens`, đo tokens/s |
 | Retrieval CPU bottleneck | Che mất lợi ích vLLM | Có benchmark LLM-only riêng |
 | OOM khi concurrency cao | Benchmark fail | Tăng dần concurrency, theo dõi KV cache |
-| Metrics name thay đổi theo version | Grafana panel không hiện | Kiểm tra trực tiếp `/metrics` |
+| Metrics name thay đổi theo version | Metric cần đọc khác tên | Kiểm tra trực tiếp `/metrics` |
 | Direct Transformers baseline khó chạy | Không có true no-vLLM baseline | Ghi rõ limitation, dùng no-batching ablation |
 
 ---
@@ -1069,7 +1065,7 @@ OpenAI-compatible API: localhost:8000/v1
 vLLM server: Qwen3-8B-AWQ, served as mcqgen
         |
         v
-Prometheus + Grafana metrics
+vLLM metrics + Langfuse traces
 ```
 
 ### Slide 4 — Evidence of vLLM usage
@@ -1092,7 +1088,7 @@ Bảng kết quả thực tế sau khi chạy.
 
 ### Slide 7 — Visual Monitoring
 
-Grafana screenshot:
+vLLM metrics snapshot:
 
 - Requests running.
 - Requests waiting.
@@ -1110,7 +1106,7 @@ Grafana screenshot:
 
 ## 13. Câu kết luận mẫu cho báo cáo
 
-> Trong dự án MCQGen, vLLM được sử dụng như inference server cho model Qwen3-8B-AWQ thông qua OpenAI-compatible API. Pipeline sinh MCQ tạo nhiều LLM calls cho mỗi câu hỏi và chạy nhiều câu hỏi đồng thời bằng asyncio. Do đó workload có tính concurrent serving, phù hợp với vLLM. Bằng cách so sánh sequential/no-batching baseline với async + vLLM, đồng thời quan sát Prometheus/Grafana metrics như token throughput, requests running/waiting và GPU KV cache usage, em có thể chứng minh vLLM không chỉ được tích hợp vào hệ thống mà còn đem lại hiệu quả thực tế về throughput và thời gian xử lý end-to-end.
+> Trong dự án MCQGen, vLLM được sử dụng như inference server cho model Qwen3-8B-AWQ thông qua OpenAI-compatible API. Pipeline sinh MCQ tạo nhiều LLM calls cho mỗi câu hỏi và chạy nhiều câu hỏi đồng thời bằng asyncio. Do đó workload có tính concurrent serving, phù hợp với vLLM. Bằng cách so sánh sequential/no-batching baseline với async + vLLM, đồng thời quan sát vLLM metrics như token throughput, requests running/waiting và GPU KV cache usage, em có thể chứng minh vLLM không chỉ được tích hợp vào hệ thống mà còn đem lại hiệu quả thực tế về throughput và thời gian xử lý end-to-end.
 
 ---
 

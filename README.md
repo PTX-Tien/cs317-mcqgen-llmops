@@ -66,11 +66,9 @@ cs317-mcqgen-llmops/
 │   ├── exp07_no_vllm_baselines.py
 │   └── vllm_demo_plan_mcqgen.md
 │
-├── 📊 monitoring/                  # Phoenix, Prometheus, Grafana configs
-│   ├── setup_tracing.py
-│   ├── docker-compose.yml
-│   ├── prometheus/
-│   └── grafana/
+├── 📊 monitoring/                  # Langfuse tracing configs
+│   ├── langfuse_tracing.py
+│   └── langfuse/
 │
 ├── 🧪 tests/                       # Test/debug scripts thủ công
 ├── 🛠️ scripts/                     # Script vận hành
@@ -130,7 +128,7 @@ Browser (:3000 Next.js)  ←→  FastAPI REST API (:7860)
                           Output: JSON + PDF
 
 Observability Stack:
-  Phoenix (:6006) | Prometheus (:9090) | Grafana (:3001)
+  Langfuse (:8083)
 ```
 
 ---
@@ -355,13 +353,12 @@ Script tự động khởi động các services theo thứ tự tối ưu (para
 ```
 [1/6] Redis          → khởi động, chờ PONG
 [2/6] vLLM           ─┐
-      Phoenix         ├─ khởi động song song (~3 phút để load model)
+      Langfuse        ├─ khởi động song song (~3 phút để load model)
       Next.js         ─┘
 [3/6] Celery Worker  → khởi động (chỉ cần Redis)
 [4/6] FastAPI        → khởi động (chỉ cần Redis)
 [5/6] Wait vLLM      → block đến khi /health OK (không timeout)
-[6/6] Prometheus     → Docker Compose
-      Grafana
+[6/6] Next.js        → khởi động sau khi FastAPI sẵn sàng
 ```
 
 **Output mong đợi sau ~3-4 phút:**
@@ -369,16 +366,14 @@ Script tự động khởi động các services theo thứ tự tối ưu (para
 ```
 📊 System Status:
   ✅ Redis      :6379
-  ✅ vLLM       :8000
-  ✅ Phoenix    :6006
-  ✅ FastAPI    :7860
-  ✅ Next.js    :3000
-  ✅ Prometheus :9090
-  ✅ Grafana    :3001
+  ✅ FastAPI    :8080
+  ✅ Next.js    :8081
+  ✅ Langfuse   :8083
+  ✅ vLLM       :7681
 
-  🌐 UI:        http://192.168.20.154:3000
-  🔧 API docs:  http://192.168.20.154:7860/docs
-  📈 Monitor:   http://192.168.20.154:6006
+  🌐 UI:        http://192.168.20.154:8081
+  🔧 API docs:  http://192.168.20.154:8080/docs
+  📈 Langfuse:  http://192.168.20.154:8083
 ```
 
 ---
@@ -387,12 +382,9 @@ Script tự động khởi động các services theo thứ tự tối ưu (para
 
 | Service | URL | Mô tả |
 |---------|-----|-------|
-| 🖥️ **Web UI** | `http://SERVER_IP:3000` | Giao diện chính (Next.js) |
-| 📡 **API Docs** | `http://SERVER_IP:7860/docs` | Swagger UI |
-| 📈 **Phoenix** | `http://SERVER_IP:6006` | LLM traces & monitoring |
-| 📊 **Grafana** | `http://SERVER_IP:3001` | System metrics dashboard |
-| 🔭 **Prometheus** | `http://SERVER_IP:9090` | Raw metrics |
-| 🌸 **Flower** | `http://SERVER_IP:5555` | Celery queue monitor |
+| 🖥️ **Web UI** | `http://SERVER_IP:8081` | Giao diện chính (Next.js) |
+| 📡 **API Docs** | `http://SERVER_IP:8080/docs` | Swagger UI |
+| 📈 **Langfuse** | `http://SERVER_IP:8083` | LLM traces, sessions, users, scores |
 
 ### Tài khoản mặc định
 
@@ -400,7 +392,6 @@ Script tự động khởi động các services theo thứ tự tối ưu (para
 |------|----------|----------|-------|
 | Giảng viên | `giaovien` | `gv2026` | Sinh MCQ, lịch sử, admin |
 | Sinh viên | `sinhvien` | `sv2026` | Làm quiz |
-| Grafana | `admin` | `mcqgen2026` | Dashboard metrics |
 
 > ⚠️ **Production:** Đổi password trong `api/core/auth.py`
 
@@ -440,7 +431,7 @@ Script tự động khởi động các services theo thứ tự tối ưu (para
 1. Đăng nhập giảng viên → **⚙️ Admin** trên navbar
 2. Xem tổng quan: tổng đề thi, câu hỏi, quality score
 3. Bảng lịch sử đề thi của tất cả người dùng
-4. Quick links: Phoenix / Grafana / Flower / Prometheus
+4. Quick links: API Docs / Langfuse
 
 ### Kiểm tra chất lượng MCQ
 
@@ -543,8 +534,7 @@ git push origin master --tags
 | **Embedding** | BAAI/bge-m3 | — |
 | **Vector DB** | ChromaDB | 1.5.x |
 | **Data Version** | DVC | — |
-| **LLM Tracing** | Arize Phoenix | 14.x |
-| **Metrics** | Prometheus + Grafana | — |
+| **LLM Tracing** | Langfuse | self-host |
 | **Database** | SQLite (sqlmodel) | — |
 | **Logging** | structlog (JSON) | 24.x |
 | **Export** | ReportLab (PDF) | — |
@@ -664,7 +654,7 @@ pip install "tokenizers>=0.21,<0.22" --force-reinstall
 | `v1.6` | Docker containerization (mcqgen-api:v1.0) |
 | `v1.7` | Sentence-Window RAG (+81% Decision Trees) |
 | `v1.8` | Queue position display + /queue/status endpoint |
-| `v1.9` | Prometheus + Grafana monitoring stack |
+| `v1.9` | Langfuse tracing and observability |
 | `v2.0` | JWT auth + Rate limiting + SQLite + structlog |
 | `v2.1` | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin) |
 

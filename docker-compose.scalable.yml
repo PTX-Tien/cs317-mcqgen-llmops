@@ -1,0 +1,175 @@
+# docker-compose.scalable.yml — Production-ready scalable stack
+#
+# Thay thế docker-compose.yml với các cải tiến:
+#   1. Nginx reverse proxy + load balancing (port 80)
+#   2. Multi-instance API (scale với: docker compose -f docker-compose.scalable.yml up --scale api=2)
+#   3. Multi-worker Celery với priority queues (high + low)
+#   4. Redis DBs phân tách: DB0=broker, DB1=backend, DB2=cache, DB3=sessions
+#   5. SQLite WAL mode (tốt hơn cho concurrent reads từ nhiều API instances)
+#
+# Khởi động:
+#   docker compose -f docker-compose.scalable.yml up -d
+#   docker compose -f docker-compose.scalable.yml up -d --scale api=2 --scale worker=2
+
+services:
+
+  # ── Nginx API Gateway ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI — có thể scale với --scale api=N ─────────────────────────────
+  api:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    # Không expose port ra host — chỉ Nginx mới truy cập qua Docker network
+    expose:
+      - "7860"
+    environment:
+      - VLLM_URL=http://host.docker.internal:7681/v1
+      # Redis DBs phân tách
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
+      # SQLite WAL mode để multiple API instances không block nhau
+      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
+      # Rate limiting
+      - RATE_LIMIT_TEACHER=10/hour
+      - RATE_LIMIT_STUDENT=30/hour
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      uvicorn api.main:app
+        --host 0.0.0.0
+        --port 7860
+        --workers 2
+        --loop uvloop
+        --http httptools
+    volumes:
+      - app_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Celery High-Priority Worker (user-facing MCQ generation) ─────────────
+  worker:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    environment:
+      - VLLM_URL=http://host.docker.internal:7681/v1
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
+      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
+      # Pipeline concurrency — khớp với VLLM_MAX_NUM_SEQS
+      - MCQGEN_MAX_CONCURRENT_QUESTIONS=4
+      - MCQGEN_LLM_MAX_CONCURRENCY=4
+      - VLLM_MAX_NUM_SEQS=4
+      # Priority queues
+      - CELERY_QUEUE_HIGH=mcq.high
+      - CELERY_QUEUE_LOW=mcq.low
+    depends_on:
+      redis:
+        condition: service_healthy
+    # concurrency=1 vì mỗi MCQ job đã dùng 4 concurrent LLM requests bên trong
+    # Scale ngang bằng --scale worker=2 thay vì tăng concurrency
+    command: >
+      celery -A api.tasks worker
+        --loglevel=info
+        --concurrency=1
+        --queues=mcq.high,celery
+        --hostname=worker-high@%h
+        --max-tasks-per-child=10
+    volumes:
+      - app_data:/app/data
+      - ./input:/app/input
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Celery Low-Priority Worker (warmup, background tasks) ────────────────
+  worker-low:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    environment:
+      - VLLM_URL=http://host.docker.internal:7681/v1
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
+      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
+      - MCQGEN_MAX_CONCURRENT_QUESTIONS=2
+      - MCQGEN_LLM_MAX_CONCURRENCY=2
+      - CELERY_QUEUE_HIGH=mcq.high
+      - CELERY_QUEUE_LOW=mcq.low
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A api.tasks worker
+        --loglevel=info
+        --concurrency=2
+        --queues=mcq.low
+        --hostname=worker-low@%h
+        --max-tasks-per-child=20
+    volumes:
+      - app_data:/app/data
+      - ./input:/app/input
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Redis — 4 logical DBs phân tách concern ───────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"    # Expose cho dev/debugging, production: xoá dòng này
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+        --save 60 1
+        --loglevel warning
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Flower — Celery task monitor ──────────────────────────────────────────
+  flower:
+    image: mcqgen-api:v1.0
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER=redis://redis:6379/0
+    depends_on:
+      - redis
+    command: >
+      celery -A api.tasks flower
+        --port=5555
+        --queues=mcq.high,mcq.low,celery
+
+volumes:
+  app_data:
+    # Named volume được chia sẻ giữa api và worker instances
+    # Quan trọng: SQLite db và ChromaDB indexes cần được share
+  redis_data:

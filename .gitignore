@@ -32,6 +32,8 @@ vllm_demo_webapp/server.log
 
 # Local runtime DB
 data/*.db
+data/*.db-shm
+data/*.db-wal
 
 # Frontend build/dependencies
 webapp/.next/

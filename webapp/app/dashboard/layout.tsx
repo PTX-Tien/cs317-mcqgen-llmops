@@ -24,10 +24,6 @@ const NAV_ITEMS = [
   { href: "/dashboard/history", label: "Lịch sử", icon: History },
 ];
 
-const SYSTEM_ITEMS = [
-  { href: "/dashboard/admin", label: "Admin", icon: Shield },
-];
-
 function NavItem({
   href,
   label,
@@ -74,6 +70,8 @@ export default function DashboardLayout({
   const { user, clearAuth } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+
+  const isAdmin = user?.role === "admin";
 
   // Determine active route: exact match for /dashboard, prefix match for others
   const isActive = (href: string) => {
@@ -139,25 +137,27 @@ export default function DashboardLayout({
             />
           ))}
 
-          <div className="pt-4">
-            {sidebarOpen && (
-              <p className="text-xs uppercase tracking-widest text-blue-200/60 px-3 mb-3">
-                Hệ thống
-              </p>
-            )}
-            {!sidebarOpen && <div className="border-t border-white/10 my-3" />}
+          {/* Chỉ hiển thị mục Hệ thống / Admin khi user có role admin */}
+          {isAdmin && (
+            <div className="pt-4">
+              {sidebarOpen && (
+                <p className="text-xs uppercase tracking-widest text-blue-200/60 px-3 mb-3">
+                  Hệ thống
+                </p>
+              )}
+              {!sidebarOpen && (
+                <div className="border-t border-white/10 my-3" />
+              )}
 
-            {SYSTEM_ITEMS.map(({ href, label, icon }) => (
               <NavItem
-                key={href}
-                href={href}
-                label={label}
-                icon={icon}
-                isActive={isActive(href)}
+                href="/dashboard/admin"
+                label="Admin"
+                icon={Shield}
+                isActive={isActive("/dashboard/admin")}
                 sidebarOpen={sidebarOpen}
               />
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Footer card */}
@@ -208,8 +208,14 @@ export default function DashboardLayout({
                   <p className="text-xs text-slate-400">MCQGen CS116</p>
                 </div>
 
-                <Badge className="rounded-full bg-blue-100 px-4 py-1 text-blue-700 hover:bg-blue-100">
-                  {user.role === "teacher" ? "Giảng viên" : "Sinh viên"}
+                <Badge
+                  className={`rounded-full px-4 py-1 hover:bg-opacity-100 ${
+                    isAdmin
+                      ? "bg-purple-100 text-purple-700 hover:bg-purple-100"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-100"
+                  }`}
+                >
+                  {isAdmin ? "Admin" : "User"}
                 </Badge>
 
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#E8F0FF] font-bold text-[#1E4FFF] shrink-0">
