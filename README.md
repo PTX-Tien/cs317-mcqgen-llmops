@@ -171,7 +171,7 @@ cs317-mcqgen-llmops/
 | ---------------------- | ------------------------------------- | --------- |
 | **Frontend**           | Next.js + TypeScript + Tailwind CSS   | 16.x      |
 | **UI Components**      | shadcn/ui                             | latest    |
-| **State Management**   | Zustand                               | 4.x       |
+| **State Management**   | Zustand                               | 5.0.12    |
 | **Backend API**        | FastAPI                               | 0.136     |
 | **Authentication**     | JWT (python-jose)                     | 3.3.0     |
 | **Task Queue**         | Celery + Redis                        | 5.x       |
