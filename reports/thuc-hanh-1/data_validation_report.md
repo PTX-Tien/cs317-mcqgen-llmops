@@ -1,12 +1,12 @@
 # Báo cáo Data Validation
 
 - Thời điểm chạy: `2026-06-11 21:46:46`
-- Input dir: `/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops/input`
-- Processed dir: `/mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops/data/processed`
+- Input dir: `input`
+- Processed dir: `data/processed`
 - Kết quả tổng: **PASS (có cảnh báo) ⚠️**
 - Số ERROR: **0** | Số WARNING: **2**
 
-Script: `scripts/validate_data_pipeline.py`. Chạy lại bằng: `python scripts/validate_data_pipeline.py`.
+Script: `scripts/validate_data_pipeline.py`. Chạy lại từ root repo bằng: `python scripts/validate_data_pipeline.py`.
 
 ## 1. Input
 
@@ -33,7 +33,7 @@ Script: `scripts/validate_data_pipeline.py`. Chạy lại bằng: `python script
 | Tỷ lệ có youtube_url | 100% |
 | Phân bố source_type | {'video_transcript': 924} |
 
-## 2. `concept_chunks.jsonl`
+## 3. `concept_chunks.jsonl`
 
 | Chỉ số | Giá trị |
 | --- | --- |
@@ -48,11 +48,11 @@ Script: `scripts/validate_data_pipeline.py`. Chạy lại bằng: `python script
 | Tỷ lệ có youtube_url | 100% |
 | Phân bố source_type | {'slide_pdf': 296, 'video_transcript': 924} |
 
-## 3. Danh sách ERROR
+## 4. Danh sách ERROR
 
 - Không có ERROR.
 
-## 4. Danh sách WARNING
+## 5. Danh sách WARNING
 
 - ⚠️ Transcript không có 'segments': transcription_summary.json
 - ⚠️ concept_chunks.jsonl: 65 chunk < 20 từ (ngắn bất thường)

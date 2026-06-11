@@ -41,7 +41,7 @@ Stage này đọc transcript JSON được trích xuất từ video bài giảng
 **Command:**
 
 ```bash
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.chunk_transcripts
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.chunk_transcripts
 ```
 
 **Input chính:**
@@ -88,7 +88,7 @@ Stage này kết hợp slide PDF và transcript chunk để tạo kho tri thức
 **Command:**
 
 ```bash
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.indexing
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.indexing
 ```
 
 **Input chính:**
@@ -142,7 +142,13 @@ Stage này chạy benchmark retrieval để đánh giá khả năng truy hồi t
 **Command:**
 
 ```bash
-mkdir -p data/benchmarks .dvc-tmp && rm -rf .dvc-tmp/indexes && cp -R data/indexes .dvc-tmp/indexes && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 INDEX_DIR=.dvc-tmp/indexes VLLM_URL=http://localhost:7681/v1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
+mkdir -p data/benchmarks .dvc-tmp
+rm -rf .dvc-tmp/indexes
+cp -R data/indexes .dvc-tmp/indexes
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  INDEX_DIR=.dvc-tmp/indexes \
+  VLLM_URL=${VLLM_URL:-http://localhost:7681/v1} \
+  python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
 ```
 
 **Input chính:**
@@ -204,7 +210,7 @@ Các metric dưới đây nên được cập nhật sau mỗi lần chạy pipe
 
 ## 7. Bảng số liệu hiện tại
 
-> Cần cập nhật bằng số liệu thật sau khi chạy lại pipeline trên máy của nhóm.
+Các số liệu dưới đây được sinh từ cấu trúc dữ liệu hiện tại trong repo sau khi chạy lại pipeline và validation script. Khi dữ liệu đầu vào thay đổi, chạy lại `dvc repro` và `python scripts/validate_data_pipeline.py` để cập nhật bảng.
 
 | Metric | Giá trị |
 | ------ | ------- |
@@ -223,14 +229,13 @@ Các metric dưới đây nên được cập nhật sau mỗi lần chạy pipe
 
 ## 8. Cách tái tạo pipeline
 
+Chạy các lệnh dưới đây từ root repo sau khi đã `conda activate mcqgen_v2`.
+
 Để chạy lại toàn bộ pipeline dữ liệu:
 
 ```bash
-conda activate mcqgen_v2
 dvc repro
 ```
-
-Nếu muốn chạy từ shell không activate conda, `dvc.yaml` đã ghim sẵn interpreter của env `mcqgen_v2` và site cache local trong repo.
 
 Để kiểm tra trạng thái dữ liệu:
 

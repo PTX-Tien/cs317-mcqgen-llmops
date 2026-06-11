@@ -306,6 +306,13 @@ class Validator:
 
 
 # ─── Sinh report markdown ─────────────────────────────────────────────────────
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(find_repo_root(Path(__file__))))
+    except Exception:
+        return str(path)
+
+
 def render_report(v: Validator, report_path: Path) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     status = "FAIL ❌" if v.errors else ("PASS (có cảnh báo) ⚠️" if v.warnings else "PASS ✅")
@@ -315,8 +322,8 @@ def render_report(v: Validator, report_path: Path) -> None:
     a("# Báo cáo Data Validation")
     a("")
     a(f"- Thời điểm chạy: `{now}`")
-    a(f"- Input dir: `{v.input_dir}`")
-    a(f"- Processed dir: `{v.processed_dir}`")
+    a(f"- Input dir: `{_display_path(v.input_dir)}`")
+    a(f"- Processed dir: `{_display_path(v.processed_dir)}`")
     a(f"- Kết quả tổng: **{status}**")
     a(f"- Số ERROR: **{len(v.errors)}** | Số WARNING: **{len(v.warnings)}**")
     a("")

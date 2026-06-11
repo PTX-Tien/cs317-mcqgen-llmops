@@ -70,10 +70,9 @@ Các báo cáo hiện có:
 
 - [Báo cáo Data Pipeline](reports/thuc-hanh-1/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
 - [Báo cáo Data Validation](reports/thuc-hanh-1/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
-- [Báo cáo Evaluation](reports/thuc-hanh-1/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
-- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): bộ test `pytest` (17 passed), kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/thuc-hanh-1/api.jpg`.
-- [Báo cáo Triển khai Docker](reports/thuc-hanh-1/docker_deployment_report.md): mô tả 2 chế độ chạy hệ thống và các lưu ý khi triển khai trên lab.
-- [Báo cáo Monitoring & Evaluation với Langfuse](reports/thuc-hanh-1/langfuse_monitoring_evaluation_report.md): khung báo cáo cho tracing/session/user/latency/score; sẽ được hoàn thiện sau.
+- [Báo cáo Evaluation](reports/thuc-hanh-1/eval_results.md): tổng hợp run sinh đề gần nhất, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
+- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): hướng dẫn chạy `pytest`, test API opt-in, kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/thuc-hanh-1/api.jpg`.
+- [Báo cáo Monitoring & Evaluation với Langfuse](reports/thuc-hanh-1/langfuse_monitoring_evaluation_report.md): hướng dẫn tracing session/user/pipeline stage, latency, token usage và accepted/rejected score.
 - [Báo cáo Optimization Strategy trực quan](reports/thuc-hanh-1/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
 ---
@@ -82,9 +81,9 @@ Các báo cáo hiện có:
 
 | Hạng mục                 | Kết quả / ghi nhận hiện tại                                                                                                                                |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Data validation          | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 780 transcript chunks và 993 concept chunks.                                   |
-| Evaluation run `exam_01` | 18 câu được yêu cầu, 8 câu accepted, 10 câu rejected/failed → **acceptance rate 44.4%**.                                                                   |
-| Duplicate trong accepted | 0 câu trùng theo stem trong 8 câu accepted → dedup theo lịch sử hoạt động tốt ở run này.                                                                   |
+| Data validation          | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 924 transcript chunks và 1220 concept chunks.                                  |
+| Evaluation run gần nhất  | 4 câu được yêu cầu, 3 câu accepted, 1 câu rejected/failed → **acceptance rate 75.0%**.                                                                     |
+| Duplicate trong accepted | 0 câu trùng theo stem trong 3 câu accepted → dedup theo lịch sử hoạt động tốt ở run này.                                                                   |
 | Adaptive RAG             | Benchmark cho thấy adaptive retrieval không kém naive trên 4 topic thử nghiệm, trung bình Δ ≈ **+0.034**; HyDE chỉ được kích hoạt khi naive retrieval yếu. |
 | vLLM serving             | Throughput tăng khoảng **3.85×** từ concurrency 1 → 4, trong khi latency P50 gần như giữ quanh ~5.7s.                                                      |
 | Async pipeline           | Pipeline async nhanh hơn sequential khoảng **2.08×** ở phần generation-only trong thử nghiệm nhỏ.                                                          |
@@ -172,6 +171,10 @@ Xem file mẫu tại [`.env.example`](.env.example).
 Người dùng chỉ cần copy file này thành `.env` rồi chỉnh theo máy của mình.
 Các file local như `.env.local` và `webapp/.env.local` không cần commit lên Git.
 
+```bash
+cp .env.example .env
+```
+
 ### Bước 4 — Cài Python dependencies
 
 ```bash
@@ -181,7 +184,7 @@ pip install -r requirements_api.txt
 ### Bước 5 — Download model Qwen2.5-7B-Instruct (~15GB)
 
 ```bash
-export HF_HOME=/path/to/storage/.cache/huggingface
+export HF_HOME=${HF_HOME:-$PWD/.cache/huggingface}
 mkdir -p models
 
 python -c "
@@ -213,6 +216,12 @@ input/
 └── videos1.txt               # YouTube URL mapping
 ```
 
+Nếu muốn kiểm tra nhanh dữ liệu đầu vào trước khi chạy DVC:
+
+```bash
+python scripts/validate_data_pipeline.py --no-report
+```
+
 ### Bước 7 — Build vector index (chạy 1 lần)
 
 ```bash
@@ -226,6 +235,13 @@ Hoặc chạy từng bước:
 python -m src.mcqgen.chunk_transcripts
 python -m src.mcqgen.indexing
 python src/gen/sentence_window_indexing.py
+```
+
+Kiểm tra trạng thái sau khi build xong:
+
+```bash
+dvc status
+python scripts/validate_data_pipeline.py
 ```
 
 ### Bước 8 — Cài đặt Next.js frontend
@@ -248,6 +264,12 @@ cd ..
 ```bash
 conda activate mcqgen_v2
 bash scripts/start_system.sh
+```
+
+Mặc định script sẽ đọc `.env`, khởi động Redis, FastAPI, Celery, Next.js, vLLM và Langfuse. Khi chỉ sửa UI/API hoặc chưa cần GPU:
+
+```bash
+bash scripts/start_system.sh --no-vllm --no-langfuse
 ```
 
 Sau khi hệ thống lên, các URL chính:

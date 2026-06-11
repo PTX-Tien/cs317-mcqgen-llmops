@@ -138,7 +138,8 @@ Cách viết đúng trong báo cáo:
 Các lệnh chính để chạy lại benchmark và sinh số liệu:
 
 ```bash
-cd /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+# Chạy từ root repo.
+conda activate mcqgen_v2
 export VLLM_URL=http://localhost:7681/v1
 export VLLM_MODEL=mcqgen
 

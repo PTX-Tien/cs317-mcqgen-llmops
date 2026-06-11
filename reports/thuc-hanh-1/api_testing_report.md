@@ -23,17 +23,24 @@ CI tương ứng: `.github/workflows/ci.yml` (chạy `pytest`, `validate_data_pi
 
 ## 3. Kết quả chạy
 
-Toàn bộ test chạy thật (hệ thống API + Redis đang chạy nền nên các test API không bị skip):
+Bộ test mặc định ưu tiên chạy nhanh và không phụ thuộc service nền. Các test API integration được tắt mặc định để người clone repo không bị treo nếu chưa khởi động Redis/FastAPI.
 
 ```text
-$ python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
-.................                                                   [100%]
-17 passed in 3.39s
+$ python -m pytest tests -q
+ssssssss.........                                                        [100%]
+9 passed, 11 skipped in 0.58s
+```
+
+Khi cần chạy đầy đủ test API integration, khởi động hệ thống trước rồi bật `RUN_API_TESTS=1`:
+
+```bash
+bash scripts/start_system.sh --no-vllm --no-langfuse
+RUN_API_TESTS=1 python -m pytest tests/api -q
 ```
 
 Ảnh chụp đầy đủ (test + health check + webapp build):
 
-![API testing: pytest 17 passed, /health, webapp build](../../figure/thuc-hanh-1/api.jpg)
+![API testing: pytest, /health, webapp build](../../figure/thuc-hanh-1/api.jpg)
 
 ## 4. Health check API
 
@@ -68,14 +75,16 @@ Việc build sạch chứng tỏ frontend khớp với API và sẵn sàng chạ
 ## 6. Cách tái chạy
 
 ```bash
-cd /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
+# Chạy từ root repo sau khi đã cài dependency.
+conda activate mcqgen_v2
 
-# (tùy chọn) chạy API không cần GPU để test API chạy thật:
+# chạy test mặc định, không cần service nền
+python -m pytest tests -q
+
+# tùy chọn: chạy API integration tests thật
 bash scripts/start_system.sh --no-vllm --no-langfuse
 curl http://localhost:8080/health
-
-# chạy test
-python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
+RUN_API_TESTS=1 python -m pytest tests/api -q
 
 # build webapp
 cd webapp && npm run build
@@ -83,9 +92,7 @@ cd webapp && npm run build
 
 ## 7. Ghi chú
 
-- Test API dùng FastAPI `TestClient`. Khi môi trường thiếu service nền (Redis/Celery), các test API
-  **tự skip** thay vì fail; test schema pipeline và PDF luôn chạy. Trong lần chạy này hệ thống đang
-  bật nên đủ **17 test pass**.
+- Test API dùng FastAPI `TestClient` và chỉ chạy khi đặt `RUN_API_TESTS=1`. Test schema pipeline và PDF luôn chạy trong bộ test mặc định.
 - Test `/generate` đăng nhập bằng tài khoản admin mặc định (`ADMIN_USERNAME` / `ADMIN_PASSWORD`).
 - Repo còn các script kiểm thử cũ không theo pytest-style (`tests/test_retrieval.py`,
   `tests/test_async_batch.py`, `tests/test_mcq_single.py`) cần vLLM; chạy riêng khi cần.
