@@ -15,6 +15,7 @@
 ## Mục lục
 
 - [Tổng quan](#-tổng-quan)
+- [Practical Extension for Lab](#-practical-extension-for-lab)
 - [Kết quả nổi bật](#-kết-quả-nổi-bật)
 - [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
 - [Tech Stack](#️-tech-stack)
@@ -45,6 +46,33 @@ Hệ thống nhận đầu vào là slide PDF và transcript bài giảng (Whisp
 
 ---
 
+## 🧪 Practical Extension for Lab
+
+So với project mang tính lý thuyết, phiên bản dùng cho bài thực hành của nhóm bổ sung rõ các thành phần vận hành LLMOps sau:
+
+- DVC data pipeline cho xử lý slide/transcript và tái tạo dữ liệu.
+- Xây dựng RAG index với ChromaDB để phục vụ truy hồi ngữ cảnh.
+- Local LLM serving bằng vLLM để tận dụng tài nguyên GPU trên máy của nhóm.
+- Tầng phục vụ bất đồng bộ với FastAPI / Celery / Redis.
+- Langfuse tracing cho session, user, latency, token usage, accepted/rejected scores và theo dõi từng pipeline stage.
+- Kiểm thử, CI và triển khai bằng Docker / Docker Compose.
+
+**Lưu ý quan trọng:**
+
+- Nhóm **không fine-tune model**.
+- Nhóm tối ưu hệ thống chủ yếu bằng **RAG, prompt engineering, serving runtime và observability**.
+- **Langfuse là kênh monitoring/tracing chính** cho quá trình sinh đề và đánh giá pipeline.
+
+### Báo cáo liên quan tới bài thực hành
+
+Phần này dành riêng cho các nội dung bổ sung phục vụ học phần thực hành MLOps/LLMOps.
+
+Các báo cáo hiện có:
+
+- [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả quá trình xử lý slide/transcript, chunking, embedding, xây dựng ChromaDB index và các metric cần ghi nhận cho pipeline dữ liệu.
+
+---
+
 ## 🏆 Kết quả nổi bật
 
 | Metric                       | Kết quả                                                  |
@@ -58,7 +86,7 @@ Hệ thống nhận đầu vào là slide PDF và transcript bài giảng (Whisp
 
 ## 🏗️ Kiến trúc hệ thống
 
-![Kiến trúc hệ thống](architecture-summary.svg)
+![Kiến trúc hệ thống](figure/architecture-summary.svg)
 
 Tóm tắt:
 
@@ -330,4 +358,3 @@ curl http://SERVER_IP:8081/health
 
 Đồ án môn **CS317 — Hệ Thống Sinh Đề Thi Tham Khảo Cho Sinh Viên**, Nhóm 3  
 Trường Đại học Công nghệ Thông tin, ĐHQG TP.HCM
-
