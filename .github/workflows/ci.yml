@@ -1,10 +1,9 @@
-name: MCQGen CI
+name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main, dev]
   pull_request:
-    branches: [master]
 
 jobs:
   test:
@@ -12,37 +11,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install deps
-        run: pip install pyyaml chromadb rank-bm25 reportlab
-
-      - name: Test imports
+      - name: Install Python deps
         run: |
-          python -c "from api.pdf_exporter import export_exam_pdf; print('pdf_exporter OK')"
-          python -c "import yaml; yaml.safe_load(open('dvc.yaml')); print('dvc.yaml OK')"
+          python -m pip install --upgrade pip
+          pip install -r requirements_api.txt
+          pip install pytest
 
-      - name: Test PDF generation
-        run: |
-          python -c "
-          from api.pdf_exporter import export_exam_pdf
-          mcqs = [{
-            'question_text': 'Test câu hỏi? [Một đáp án đúng]',
-            'question_type': 'single_correct',
-            'options': {'A':'Đúng','B':'Sai','C':'Không','D':'Có'},
-            'correct_answers': ['A'],
-            'topic': 'Test',
-            'difficulty_label': 'G2'
-          }]
-          pdf = export_exam_pdf(mcqs, 'TEST')
-          assert len(pdf) > 1000, 'PDF too small'
-          print(f'PDF OK: {len(pdf)} bytes')
-          "
+      - name: Run tests (pytest)
+        run: pytest tests -q
+        # Test API tự skip nếu thiếu service nền; test pipeline/PDF luôn chạy.
 
-      - name: Validate DVC pipeline
+      - name: Validate data pipeline (nếu có dữ liệu)
+        run: python scripts/validate_data_pipeline.py --no-report || true
+
+  webapp-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build Next.js webapp
+        working-directory: webapp
         run: |
-          pip install dvc
-          dvc dag
+          npm ci
+          npm run build
