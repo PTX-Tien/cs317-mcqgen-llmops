@@ -53,11 +53,11 @@ export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingf
 export HF_HUB_OFFLINE=0
 
 # ── GPU split ─────────────────────────────────────────────────────────────────
-export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,3,4,7}
+export VLLM_CUDA_VISIBLE_DEVICES=${VLLM_CUDA_VISIBLE_DEVICES:-2,4,7}
 export TASK_CUDA_VISIBLE_DEVICES=${TASK_CUDA_VISIBLE_DEVICES:-4,7}
 
 # ── vLLM config ───────────────────────────────────────────────────────────────
-export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-4}
+export VLLM_TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL_SIZE:-2}
 export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-5000}
 export VLLM_MAX_NUM_SEQS=$(positive_int_or_default "${VLLM_MAX_NUM_SEQS:-4}" 4)
 export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
