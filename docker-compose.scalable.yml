@@ -153,21 +153,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Flower — Celery task monitor ──────────────────────────────────────────
-  flower:
-    image: mcqgen-api:v1.0
-    restart: unless-stopped
-    ports:
-      - "5555:5555"
-    environment:
-      - CELERY_BROKER=redis://redis:6379/0
-    depends_on:
-      - redis
-    command: >
-      celery -A api.tasks flower
-        --port=5555
-        --queues=mcq.high,mcq.low,celery
-
 volumes:
   app_data:
     # Named volume được chia sẻ giữa api và worker instances

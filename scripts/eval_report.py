@@ -3,7 +3,7 @@
 eval_report.py — Sinh báo cáo evaluation cho hệ thống MCQGen.
 
 Mục tiêu (bài thực hành mục 5.7 — Evaluation report):
-  Tổng hợp kết quả một run sinh đề và ghi `reports/eval_results.md`.
+  Tổng hợp kết quả một run sinh đề và ghi `reports/thuc-hanh-1/eval_results.md`.
 
 Nguồn "accepted" (ưu tiên theo thứ tự):
   1. --mcqs-file <path>            : đọc trực tiếp các câu accepted từ mcqs.jsonl.
@@ -305,7 +305,7 @@ def main() -> int:
     p.add_argument("--list", action="store_true")
     p.add_argument("--mcqs-file", default=None, help="Đường dẫn mcqs.jsonl chứa các câu accepted")
     p.add_argument("--check-pdf", action="store_true")
-    p.add_argument("--report", default=str(root / "reports" / "eval_results.md"))
+    p.add_argument("--report", default=str(root / "reports" / "thuc-hanh-1" / "eval_results.md"))
     args = p.parse_args()
 
     db_path = detect_db(root, args.db)

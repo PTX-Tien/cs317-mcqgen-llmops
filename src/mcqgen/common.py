@@ -24,7 +24,7 @@ class Config:
     EXP_NAME = "full_pipeline"  # Mini test: 15 câu, focus ch04/ch07b/ch08
 
     # ─── Paths (tự động tính từ vị trí file này) ───────────────────
-    PROJECT_ROOT = Path(__file__).resolve().parent
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
     # Model paths (tải từ HuggingFace vào thư mục này)
     MODEL_ROOT = PROJECT_ROOT / "models"

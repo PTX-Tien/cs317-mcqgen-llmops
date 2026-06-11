@@ -1,7 +1,7 @@
 # CS317 — MCQGen: Hệ Thống Sinh Đề Thi MCQ Tự Động với LLMOps
 
 > **Đồ án môn CS317 — Nhóm 3 | ĐH Công nghệ Thông tin, ĐHQG TP.HCM**  
-> Hệ thống sinh câu hỏi trắc nghiệm từ slide PDF và transcript bài giảng, kết hợp RAG, prompt engineering, vLLM serving và Langfuse tracing.
+> Hệ thống sinh câu hỏi trắc nghiệm từ slide PDF và transcript bài giảng, kết hợp RAG, prompt engineering và vLLM serving.
 
 [![Python](https://img.shields.io/badge/Python-3.10-blue)](https://python.org)
 [![vLLM](https://img.shields.io/badge/vLLM-0.8.5-green)](https://vllm.ai)
@@ -22,11 +22,7 @@
 - [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
 - [Cài đặt](#-cài-đặt)
 - [Khởi động & dừng hệ thống](#-khởi-động--dừng-hệ-thống)
-- [Testing & CI](#-testing--ci)
 - [Hướng dẫn sử dụng](docs/huong-dan-su-dung.md)
-- [Monitoring & Evaluation với Langfuse](#-monitoring--evaluation-với-langfuse)
-- [DVC Pipeline](#-dvc-pipeline)
-- [Triển khai Docker](#-triển-khai-docker)
 - [Troubleshooting](#-troubleshooting)
 - [Release History](#-release-history)
 - [Nhóm thực hiện](#-nhóm-thực-hiện)
@@ -43,8 +39,6 @@ Hệ thống nhận đầu vào là slide PDF và transcript bài giảng (Whisp
 - DVC quản lý pipeline dữ liệu.
 - vLLM host model local.
 - FastAPI + Celery + Redis xử lý request bất đồng bộ.
-- Langfuse theo dõi trace, session, user, score và latency.
-- Docker hỗ trợ triển khai local/container.
 
 ---
 
@@ -57,24 +51,30 @@ So với project ban đầu, phiên bản dùng cho bài thực hành nhấn m�
 - **Prompt optimization**: quản lý prompt theo version, bổ sung style bank từ đề CS116 thật, guardrail cho opening style và misconception-guided distractor.
 - **Serving/runtime optimization**: phục vụ Qwen2.5-7B-Instruct bằng vLLM local, tận dụng batching, prefix caching, async pipeline và dynamic concurrency.
 - **System optimization**: FastAPI + Celery + Redis cho xử lý bất đồng bộ, Redis cache cho request trùng và dedup câu hỏi theo lịch sử.
-- **Observability**: Langfuse tracing cho session, user, latency, token usage, input/output từng stage, accepted/rejected scores và reject reason.
 
 **Lưu ý quan trọng:**
 
 - Nhóm **không fine-tune / quantize / optimize trọng số** của Qwen2.5-7B-Instruct.
-- Phần "model optimization" trong project này được hiểu theo đúng bối cảnh **LLMOps**: tối ưu retrieval, prompt, runtime serving, cache, concurrency và monitoring.
+- Phần "model optimization" trong project này được hiểu theo đúng bối cảnh **LLMOps**: tối ưu retrieval, prompt, runtime serving, cache và concurrency.
 - Các kết quả đo phụ thuộc GPU, version vLLM và workload. Những mục chưa đo đầy đủ được ghi rõ trong báo cáo, đặc biệt là so sánh prompt v1/v2 và prefix-cache ablation.
 
-### Báo cáo liên quan tới bài thực hành
+### Báo cáo liên quan tới bài thực hành 1
+
+Toàn bộ báo cáo và hình minh họa của bài thực hành 1 được gom trong:
+
+- `reports/thuc-hanh-1/`
+- `figure/thuc-hanh-1/`
+- `figure/chung/` cho tài sản dùng chung giữa các bài
 
 Các báo cáo hiện có:
 
-- [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
-- [Báo cáo Data Validation](reports/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
-- [Báo cáo Evaluation](reports/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
-- [Báo cáo API Demo & Testing](reports/api_testing_report.md): bộ test `pytest` (17 passed), kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/api.jpg`.
-- [Hướng dẫn Deployment cho lab](docs/deployment_for_lab.md): 2 chế độ triển khai (full với vLLM/Langfuse và UI/API-only), URL service, lưu ý GPU tensor-parallel, đồng bộ Docker/monitoring.
-- [Báo cáo Optimization Strategy trực quan](reports/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
+- [Báo cáo Data Pipeline](reports/thuc-hanh-1/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
+- [Báo cáo Data Validation](reports/thuc-hanh-1/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
+- [Báo cáo Evaluation](reports/thuc-hanh-1/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
+- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): bộ test `pytest` (17 passed), kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/thuc-hanh-1/api.jpg`.
+- [Báo cáo Triển khai Docker](reports/thuc-hanh-1/docker_deployment_report.md): mô tả 2 chế độ chạy hệ thống và các lưu ý khi triển khai trên lab.
+- [Báo cáo Monitoring & Evaluation với Langfuse](reports/thuc-hanh-1/langfuse_monitoring_evaluation_report.md): khung báo cáo cho tracing/session/user/latency/score; sẽ được hoàn thiện sau.
+- [Báo cáo Optimization Strategy trực quan](reports/thuc-hanh-1/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
 ---
 
@@ -94,7 +94,7 @@ Các báo cáo hiện có:
 
 ## 🏗️ Kiến trúc hệ thống
 
-![Kiến trúc hệ thống](figure/architecture-summary.svg)
+![Kiến trúc hệ thống](figure/chung/architecture-summary.svg)
 
 Tóm tắt:
 
@@ -104,8 +104,6 @@ Tóm tắt:
 - RAG pipeline: slide PDF + transcript → clean/chunk/index → ChromaDB → adaptive retrieval/rerank.
 - vLLM: host Qwen2.5-7B-Instruct local qua OpenAI-compatible API.
 - Langfuse: trace session, user, prompt stage, input/output, latency, token usage, score và reject stage.
-
-Luồng tối ưu prompt và trace bằng Langfuse được trình bày chi tiết trong [Báo cáo Optimization Strategy trực quan](reports/optimization_summary.md).
 
 ---
 
@@ -172,6 +170,7 @@ conda install -c conda-forge nodejs=20 -y
 
 Xem file mẫu tại [`.env.example`](.env.example).  
 Người dùng chỉ cần copy file này thành `.env` rồi chỉnh theo máy của mình.
+Các file local như `.env.local` và `webapp/.env.local` không cần commit lên Git.
 
 ### Bước 4 — Cài Python dependencies
 
@@ -198,7 +197,7 @@ print('Done!')
 
 ### Bước 6 — Chuẩn bị dữ liệu đầu vào
 
-Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](THÊM_LINK_GOOGLE_DRIVE_CỦA_NHÓM_VÀO_ĐÂY)**
+Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](https://drive.google.com/file/d/1mF3OKMXRIcLsFBe4KZZvoSbcKkD9buBl/view?usp=sharing)**
 
 Sau khi tải về, đặt file vào đúng cấu trúc:
 
@@ -230,6 +229,8 @@ python src/gen/sentence_window_indexing.py
 ```
 
 ### Bước 8 — Cài đặt Next.js frontend
+
+Chỉ cần bước này nếu bạn muốn build/run frontend riêng, không dùng `scripts/start_system.sh`.
 
 ```bash
 cd webapp
@@ -265,164 +266,11 @@ bash scripts/stop_system.sh
 
 ---
 
-## 🧪 Testing & CI
-
-Hệ thống có bộ test `pytest` và CI (GitHub Actions). Chi tiết và bằng chứng chạy: xem
-[Báo cáo API Demo & Testing](reports/api_testing_report.md).
-
-```text
-tests/api/test_health.py                      # GET /health -> 200
-tests/api/test_auth.py                        # login thiếu field -> 422; sai user -> 401; admin login OK
-tests/api/test_generate_schema.py             # /generate không token -> 401; body sai -> 422
-tests/pipeline/test_chunk_schema.py           # transcript_chunks: JSON hợp lệ, đủ field, không trùng id
-tests/pipeline/test_concept_chunks_schema.py  # concept_chunks: đủ field bắt buộc, text không rỗng
-tests/test_pdf_exporter.py                    # export_exam_pdf() trả về bytes PDF hợp lệ
-.github/workflows/ci.yml                      # CI: pytest + validate_data_pipeline + build webapp
-```
-
-Chạy test:
-
-```bash
-python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
-```
-
-Kết quả thực tế: **17 passed** (toàn bộ test API + pipeline + PDF chạy thật khi hệ thống đang lên),
-`GET /health` trả `status: ok` (cache + session Redis đều ok), và `npm run build` biên dịch
-thành công 10/10 route.
-
-![API testing: pytest 17 passed, /health, webapp build](figure/api.jpg)
-
-Ghi chú: test API dùng FastAPI `TestClient`; khi thiếu service nền (Redis/Celery) các test API
-tự **skip** thay vì fail, còn test schema pipeline và PDF luôn chạy.
-
----
-
 ## 📖 Hướng dẫn sử dụng
 
 Chi tiết được tách sang file riêng:
 
 - [docs/huong-dan-su-dung.md](docs/huong-dan-su-dung.md)
-
----
-
-## 📡 Monitoring & Evaluation với Langfuse
-
-Langfuse là kênh chính để nhóm debug và tối ưu pipeline sinh đề. Trong code, các wrapper tại `monitoring/langfuse_tracing.py` được dùng để tạo observation, cập nhật output, metadata, usage và score cho từng trace.
-
-### Trace hierarchy
-
-Một lượt generate đề thường có cấu trúc trace như sau:
-
-```text
-mcqgen.generate_exam
-├── api.generate.submit
-├── celery.run_mcq_pipeline
-│   ├── rag.retrieve / rag.cache_hit
-│   ├── llm.P1_gen_stem_key
-│   ├── llm.P4_option_candidates
-│   ├── llm.P5_cot_evaluate
-│   ├── llm.P6_remove_bad
-│   ├── llm.P7_select_final
-│   ├── llm.P8_assemble
-│   ├── guardrail.opening_check
-│   ├── llm.OPENING_REPAIR
-│   ├── llm.P9_explanation
-│   └── llm.final_eval
-└── trace scores: accepted_questions, failed_questions, acceptance_rate, reject_stage.<stage>
-```
-
-### Vì sao trace giúp tối ưu prompt?
-
-Mỗi prompt stage đều lưu input/output rút gọn, metadata và usage. Khi một MCQ bị reject, nhóm có thể mở trace để xác định lỗi xảy ra ở layer nào:
-
-- **RAG lỗi**: context retrieval không liên quan hoặc similarity thấp.
-- **P1 lỗi**: stem/correct answer chưa rõ hoặc output không parse được JSON.
-- **P4/P5/P6/P7 lỗi**: distractor không hợp lý, quá dễ, trùng ý hoặc không đúng misconception.
-- **Opening lỗi**: câu hỏi mở đầu theo template xấu, bị guardrail phát hiện và repair/reject.
-- **Final eval lỗi**: câu hỏi không đủ chất lượng, không đúng topic/chapter hoặc chưa đạt chuẩn format.
-- **Dedup lỗi**: câu hỏi quá giống lịch sử của user.
-
-Từ các failure stage này, nhóm quay lại chỉnh đúng prompt tương ứng thay vì sửa toàn bộ pipeline một cách cảm tính. Ví dụ: nếu nhiều câu fail ở `opening_check`, cần cập nhật `bad_openings.json` hoặc `opening_families.json`; nếu fail ở distractor, cần bổ sung `misconception_types.json` hoặc ràng buộc P4/P5 rõ hơn.
-
-### Cách xem nhanh trên dashboard
-
-Sau khi khởi động hệ thống:
-
-```bash
-bash scripts/start_system.sh
-```
-
-Mở Langfuse tại:
-
-```text
-http://SERVER_IP:8083
-```
-
-Các trường nên kiểm tra:
-
-- Trace name: `mcqgen.generate_exam`.
-- Observation name: `rag.retrieve`, `llm.P1_gen_stem_key`, `llm.P4_option_candidates`, `guardrail.opening_check`, `llm.final_eval`.
-- Scores: `accepted_questions`, `failed_questions`, `acceptance_rate`, `reject_stage.<stage>`.
-- Tags/metadata: `traffic:*`, `ccu:*`, `usecase:generate_exam`, `run:*`, `loadtest:<id>`.
-
-### Evaluation hiện tại
-
-Run `exam_01` hiện có 18 câu được yêu cầu, 8 câu accepted và 10 câu rejected/failed, tương ứng **acceptance rate 44.4%**. Run này chưa lưu chi tiết `failure_info_json`, vì vậy muốn phân tích reject đầy đủ cần generate đề mới bằng pipeline hiện tại rồi chạy lại script evaluation tương ứng trong môi trường repo.
-
----
-
-## 🔄 DVC Pipeline
-
-Pipeline trong `dvc.yaml` gồm 3 stages:
-
-```text
-transcript_chunking → indexing → benchmark_rag
-```
-
-Ý nghĩa từng stage:
-
-| Stage                 | Output chính                                             | Vai trò                                                              |
-| --------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| `transcript_chunking` | `data/processed/transcript_chunks_with_timestamps.jsonl` | Cắt transcript thành chunk có timestamp/youtube_url.                 |
-| `indexing`            | `data/processed/concept_chunks.jsonl`, `data/indexes/`   | Gộp slide + transcript, sinh concept chunks và build ChromaDB index. |
-| `benchmark_rag`       | `data/benchmarks/rag_benchmark.log`                      | Chạy benchmark adaptive RAG để kiểm tra retrieval.                   |
-
-Lệnh thường dùng:
-
-```bash
-dvc dag
-dvc repro
-dvc status
-```
-
-Sau khi chạy pipeline, đối chiếu thêm với [Báo cáo Data Validation](reports/data_validation_report.md) để kiểm tra số chunk, field bắt buộc, duplicate id, lỗi parse và các warning dữ liệu.
-
-Khi thêm dữ liệu mới:
-
-```bash
-cp new_slide.pdf input/slide/
-cp new_transcript.json input/transcribe_data/
-dvc repro
-git add .
-git commit -m "data: add new chapter"
-```
-
----
-
-## 🐳 Triển khai Docker
-
-### Build image
-
-```bash
-docker build -t mcqgen-api:v1.0 .
-```
-
-### Chạy với docker-compose
-
-```bash
-docker-compose up -d
-docker-compose -f docker-compose.scalable.yml up -d
-```
 
 ---
 
@@ -452,9 +300,18 @@ dvc repro
 **Next.js không kết nối được API**
 
 ```bash
-cat webapp/.env.local
-curl http://SERVER_IP:8081/health
+bash scripts/start_system.sh --no-vllm --no-langfuse
+curl http://SERVER_IP:8081/api/health
 ```
+
+**Redis không bind được port 6379**
+
+```bash
+tail -50 logs/redis.log
+REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm --no-langfuse
+```
+
+Nếu log có `Could not create server TCP listening socket`, hãy kiểm tra port đang bị chiếm hoặc bị giới hạn bởi môi trường chạy. Script sẽ dừng sau `REDIS_WAIT_SECONDS` thay vì chờ vô hạn.
 
 ---
 

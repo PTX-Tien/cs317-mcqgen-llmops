@@ -41,15 +41,23 @@ truthy_value() {
 }
 
 # ── Conda env ─────────────────────────────────────────────────────────────────
-source /mmlab_students/storageStudents/nguyenvd/anaconda3/etc/profile.d/conda.sh
-conda activate mcqgen_v2 2>/dev/null
+if command -v conda >/dev/null 2>&1; then
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate mcqgen_v2 2>/dev/null
+else
+    echo "Conda not found. Please install/initialize conda first." >&2
+    exit 1
+fi
 
 # ── CUDA ──────────────────────────────────────────────────────────────────────
 export CUDA_HOME=/usr/local/cuda-11.8
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 export PYTHONNOUSERSITE=1
-export HF_HOME=/mmlab_students/storageStudents/nguyenvd/trangbtt/.cache/huggingface
+export HF_HOME=${HF_HOME:-$PROJECT/.cache/huggingface}
+export PIP_CACHE_DIR=${PIP_CACHE_DIR:-$PROJECT/.cache/pip}
+export UV_CACHE_DIR=${UV_CACHE_DIR:-$PROJECT/.cache/uv}
+mkdir -p "$HF_HOME" "$PIP_CACHE_DIR" "$UV_CACHE_DIR"
 export HF_HUB_OFFLINE=0
 
 # ── GPU split ─────────────────────────────────────────────────────────────────
@@ -133,6 +141,7 @@ export LANGFUSE_WAIT_SECONDS=${LANGFUSE_WAIT_SECONDS:-120}
 
 # ── Redis — DB phân tách theo concern ─────────────────────────────────────────
 export REDIS_PORT=${REDIS_PORT:-6379}
+export REDIS_WAIT_SECONDS=$(positive_int_or_default "${REDIS_WAIT_SECONDS:-30}" 30)
 export CELERY_BROKER=${CELERY_BROKER:-redis://localhost:${REDIS_PORT}/0}
 export CELERY_BACKEND=${CELERY_BACKEND:-redis://localhost:${REDIS_PORT}/1}
 export REDIS_CACHE_URL=${REDIS_CACHE_URL:-redis://localhost:${REDIS_PORT}/2}
@@ -380,15 +389,24 @@ log "[1/6] Redis..."
 if redis_ping; then
     log "✅ Redis already running on port $REDIS_PORT"
 else
-    redis-server \
+    if ! redis-server \
         --port $REDIS_PORT \
         --daemonize yes \
         --logfile $LOG_DIR/redis.log \
         --dir $PROJECT/redis_data \
         --save 60 1 \
-        --loglevel warning
+        --loglevel warning; then
+        log "❌ Redis failed to start on port $REDIS_PORT"
+        tail -n 40 "$LOG_DIR/redis.log" 2>/dev/null || true
+        exit 1
+    fi
 fi
-wait_until "Redis" "redis_ping"
+if ! wait_with_timeout "Redis" "redis_ping" "$REDIS_WAIT_SECONDS"; then
+    log "❌ Redis is not reachable on port $REDIS_PORT after ${REDIS_WAIT_SECONDS}s"
+    log "   Check whether the port is blocked or another process owns it."
+    tail -n 40 "$LOG_DIR/redis.log" 2>/dev/null || true
+    exit 1
+fi
 
 # ── STEP 2: vLLM (optional) + Langfuse — chạy song song ─────────────────────
 log "[2/6] Starting parallel services..."

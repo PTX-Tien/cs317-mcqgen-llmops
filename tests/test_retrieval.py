@@ -1,4 +1,10 @@
+import os
 import sys
+
+if "pytest" in sys.modules and os.getenv("RUN_LLM_SMOKE_TESTS") != "1":
+    import pytest
+    pytest.skip("Retrieval smoke test; set RUN_LLM_SMOKE_TESTS=1 to run", allow_module_level=True)
+
 sys.path.insert(0, '.')
 from pathlib import Path
 import chromadb

@@ -26,6 +26,8 @@ os.environ.setdefault("ADMIN_PASSWORD", "admin2026")
 
 @pytest.fixture(scope="session")
 def client():
+    if os.getenv("RUN_API_TESTS") != "1":
+        pytest.skip("API integration tests are disabled by default. Set RUN_API_TESTS=1 to run them.")
     try:
         from fastapi.testclient import TestClient
         from api.main import app

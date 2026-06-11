@@ -18,7 +18,7 @@ Vì vậy, phần “optimization” trong project này được hiểu đúng t
 
 Thay vì để nhiều bảng rời rạc, hình dưới gom các kết quả chính vào một dashboard. Người đọc có thể nhìn nhanh: phần nào tốt, phần nào bão hòa, phần nào chưa đủ bằng chứng để claim mạnh.
 
-![Optimization visual dashboard](figures/optimization-visual-dashboard.png)
+![Optimization visual dashboard](../../figure/thuc-hanh-1/optimization-visual-dashboard.png)
 
 Cách đọc hình:
 
@@ -46,7 +46,7 @@ Xấu là khi adaptive làm similarity giảm, hoặc HyDE luôn bị gọi dù 
 
 Prompt optimization của nhóm không chỉ là sửa prompt thủ công. Nhóm dùng **Langfuse** để quan sát input/output của từng layer trong pipeline sinh MCQ. Mỗi câu hỏi đi qua nhiều stage như RAG context, sinh stem, sinh distractor, evaluate, filter, assemble JSON, opening check, explanation và final evaluation.
 
-![Prompt optimization with Langfuse tracing](figures/prompt-langfuse-tracing.png)
+![Prompt optimization with Langfuse tracing](../../figure/thuc-hanh-1/prompt-langfuse-tracing.png)
 
 Ý nghĩa của Langfuse trong tối ưu prompt:
 
@@ -138,7 +138,7 @@ Cách viết đúng trong báo cáo:
 Các lệnh chính để chạy lại benchmark và sinh số liệu:
 
 ```bash
-cd /mmlab_students/storageStudents/nguyenvd/thanhhn/cs317-mcqgen-llmops
+cd /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 export VLLM_URL=http://localhost:7681/v1
 export VLLM_MODEL=mcqgen
 

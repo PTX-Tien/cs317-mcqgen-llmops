@@ -33,7 +33,7 @@ $ python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
 
 Ảnh chụp đầy đủ (test + health check + webapp build):
 
-![API testing: pytest 17 passed, /health, webapp build](../figure/api.jpg)
+![API testing: pytest 17 passed, /health, webapp build](../../figure/thuc-hanh-1/api.jpg)
 
 ## 4. Health check API
 
@@ -49,7 +49,7 @@ $ python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
 | `vllm_max_num_seqs` / `total_llm_slots` | 4 / 4 | Slot vLLM cấu hình |
 | `question_concurrency_per_job` / `llm_concurrency_per_job` | 4 / 4 | Concurrency mỗi job |
 | `dynamic_concurrency` / `global_slot_guard` / `autotune` | bật (1) | Cơ chế điều phối tải động |
-| `celery_queue_high` / `celery_queue_low` | `mcq.thanhhn.high` / `mcq.thanhhn.low` | Hàng đợi Celery theo namespace |
+| `celery_queue_high` / `celery_queue_low` | `mcq.thanhld.high` / `mcq.thanhld.low` | Hàng đợi Celery theo namespace |
 | `app_env` / `trace_run_type` | `prod` / `manual` | Môi trường + kiểu trace Langfuse |
 
 Trạng thái `ok` ở cả `cache` và `session` xác nhận Redis và tầng async sẵn sàng phục vụ request.
@@ -68,7 +68,7 @@ Việc build sạch chứng tỏ frontend khớp với API và sẵn sàng chạ
 ## 6. Cách tái chạy
 
 ```bash
-cd /mmlab_students/storageStudents/nguyenvd/thanhhn/cs317-mcqgen-llmops
+cd /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops
 
 # (tùy chọn) chạy API không cần GPU để test API chạy thật:
 bash scripts/start_system.sh --no-vllm --no-langfuse

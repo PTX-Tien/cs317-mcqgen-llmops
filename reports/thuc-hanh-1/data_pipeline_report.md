@@ -12,7 +12,7 @@ Trong phạm vi bài thực hành MLOps/LLMOps, pipeline dữ liệu không ch�
 - lưu metadata truy vết nguồn gốc để giải thích câu hỏi được sinh ra;
 - đánh giá chất lượng retrieval trước khi đưa vào pipeline sinh đề.
 
-![Data Pipeline Report](../figure/data-pipeline-report.png)
+![Data Pipeline Report](../../figure/thuc-hanh-1/data-pipeline-report.png)
 
 ## 2. Phạm vi dữ liệu
 
@@ -41,7 +41,7 @@ Stage này đọc transcript JSON được trích xuất từ video bài giảng
 **Command:**
 
 ```bash
-python -m src.mcqgen.chunk_transcripts
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.chunk_transcripts
 ```
 
 **Input chính:**
@@ -88,7 +88,7 @@ Stage này kết hợp slide PDF và transcript chunk để tạo kho tri thức
 **Command:**
 
 ```bash
-python -m src.mcqgen.indexing
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.indexing
 ```
 
 **Input chính:**
@@ -142,7 +142,7 @@ Stage này chạy benchmark retrieval để đánh giá khả năng truy hồi t
 **Command:**
 
 ```bash
-mkdir -p data/benchmarks && python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
+mkdir -p data/benchmarks .dvc-tmp && rm -rf .dvc-tmp/indexes && cp -R data/indexes .dvc-tmp/indexes && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 INDEX_DIR=.dvc-tmp/indexes VLLM_URL=http://localhost:7681/v1 /mmlab_students/storageStudents/nguyenvd/anaconda3/envs/mcqgen_v2/bin/python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
 ```
 
 **Input chính:**
@@ -217,9 +217,9 @@ Các metric dưới đây nên được cập nhật sau mỗi lần chạy pipe
 | Avg chunk length | 153.61 từ |
 | Max chunk length | 264 từ |
 | Số đoạn nhiễu/trùng đã loại | 0 chunk có `text_clean` khác `text` trong output hiện tại |
-| Thời gian chạy `dvc repro` | DVC wrapper lỗi DB; stage-by-stage tương đương 15m35s (transcript_chunking 4.54s + indexing 483.13s + sentence-window 447.57s) |
+| Thời gian chạy `dvc repro` | Đã xác nhận chạy được trên máy nhóm; clean run hiện tại cho thấy `indexing` khoảng 7m00s, còn `benchmark_rag` chạy thành công trên bản sao tạm của `data/indexes` |
 
-> Ghi chú: lệnh `dvc repro` hiện tại trên máy nhóm báo lỗi `unable to open database file`, nên số thời gian ở trên được đo bằng cách chạy từng stage tương đương để vẫn ghi nhận được số liệu thực tế của pipeline dữ liệu.
+> Ghi chú: đã sửa `Config.PROJECT_ROOT` về đúng root repo, đặt `core.site_cache_dir=.dvc-site-cache`, cố định interpreter của env `mcqgen_v2` trong `dvc.yaml`, và cho stage benchmark dùng bản sao tạm của `data/indexes` để `dvc repro` không làm dirty output được track. `dvc status` sau đó báo `Data and pipelines are up to date.`
 
 ## 8. Cách tái tạo pipeline
 
@@ -229,6 +229,8 @@ Các metric dưới đây nên được cập nhật sau mỗi lần chạy pipe
 conda activate mcqgen_v2
 dvc repro
 ```
+
+Nếu muốn chạy từ shell không activate conda, `dvc.yaml` đã ghim sẵn interpreter của env `mcqgen_v2` và site cache local trong repo.
 
 Để kiểm tra trạng thái dữ liệu:
 

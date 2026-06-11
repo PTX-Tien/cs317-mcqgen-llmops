@@ -64,7 +64,7 @@ export VLLM_MODEL=mcqgen
 | `--with-langfuse` / `--no-langfuse` | Bật/tắt Langfuse self-host (port `LANGFUSE_PORT`, mặc định 8083) |
 | `-h`, `--help` | In hướng dẫn |
 
-M��c định (không truyền flag) = `--with-vllm --with-langfuse`. Có thể override bằng biến môi trường
+Mc định (không truyền flag) = `--with-vllm --with-langfuse`. Có thể override bằng biến môi trường
 `START_VLLM`, `START_LANGFUSE`, `VLLM_PORT`, `API_PORT`, `WEBAPP_PORT`, `LANGFUSE_PORT`, `REDIS_PORT`.
 
 ## 4. URL các service (bare-metal, qua `start_system.sh`)
@@ -97,12 +97,13 @@ Script dừng FastAPI (uvicorn theo `API_PORT`), Celery workers, và vLLM. Nếu
 
 ```bash
 nvidia-smi                 # kiểm tra GPU
-tail -f log/vllm.log       # log vLLM (đường dẫn theo cấu hình script)
+tail -f logs/vllm.log      # log vLLM (đường dẫn theo cấu hình script)
 ```
 
 - vLLM lỗi `attention heads (28) must be divisible by tensor parallel size`: đặt `VLLM_TENSOR_PARALLEL_SIZE` là ước của 28 (xem Mode 1).
 - ChromaDB lỗi I/O: `rm -rf data/indexes/ data/processed/ && dvc repro`.
-- Next.js không gọi được API: kiểm tra `webapp/.env.local` và `curl http://localhost:8081/api/health`.
+- Next.js không gọi được API: chạy lại `bash scripts/start_system.sh` hoặc kiểm tra `NEXT_PUBLIC_API_BACKEND` và `curl http://localhost:8081/api/health`.
+- Redis không bind được port 6379: kiểm tra `tail -50 logs/redis.log`; nếu port bị chiếm hoặc môi trường không cho mở cổng, đổi sang `REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm --no-langfuse`.
 
 ## 7. Triển khai bằng Docker (tùy chọn)
 
@@ -115,7 +116,6 @@ tail -f log/vllm.log       # log vLLM (đường dẫn theo cấu hình script)
 | `redis` | Broker/cache | `6380:6379` |
 | `api` | FastAPI (`uvicorn api.main:app`) | `7860:7860` |
 | `worker` | Celery worker (`concurrency=1`) | — |
-| `flower` | Celery monitoring UI | `5555:5555` |
 
 ```bash
 docker build -t mcqgen-api:v1.0 .
@@ -130,7 +130,4 @@ docker-compose -f docker-compose.scalable.yml up -d
 
 - **Kênh monitoring/tracing chính là Langfuse** (self-host, port 8083). Tất cả trace session, user,
   pipeline stage, score (`accepted_questions`, `acceptance_rate`, `reject_stage.*`) đều ở Langfuse.
-- **Flower** chỉ tồn tại trong Docker compose (port 5555) như công cụ theo dõi Celery; **không** được
-  `start_system.sh` khởi động. Khi chạy bare-metal thì không có Flower.
-- **Grafana/Prometheus**: không được triển khai như service trong hệ thống hiện tại (không có trong
-  `start_system.sh` lẫn compose). Nếu README còn nhắc tới, nên xóa để khớp với thực tế.
+- **Flower/Grafana/Prometheus/Phoenix/Streamlit**: không được triển khai trong stack hiện tại. Monitoring chính là Langfuse; Celery được kiểm tra qua log và trạng thái worker của `start_system.sh`.

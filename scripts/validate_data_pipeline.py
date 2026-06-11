@@ -5,7 +5,7 @@ validate_data_pipeline.py — Kiểm thử (validate) dữ liệu của pipeline
 Mục tiêu (bài thực hành mục 5.3 — Data validation):
   Sau khi chạy `dvc repro` (transcript_chunking -> indexing), script này kiểm tra
   tính hợp lệ của dữ liệu input và các artifact JSONL đầu ra, rồi tự sinh
-  `reports/data_validation_report.md` với số liệu thật.
+  `reports/thuc-hanh-1/data_validation_report.md` với số liệu thật.
 
 Các rule được kiểm tra:
   [INPUT]
@@ -24,7 +24,7 @@ Các rule được kiểm tra:
 
 Cách dùng:
     python scripts/validate_data_pipeline.py
-    python scripts/validate_data_pipeline.py --report reports/data_validation_report.md
+    python scripts/validate_data_pipeline.py --report reports/thuc-hanh-1/data_validation_report.md
     python scripts/validate_data_pipeline.py --processed-dir data/processed --input-dir input
 
 Exit code:
@@ -390,7 +390,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate MCQGen data pipeline.")
     parser.add_argument("--input-dir", default=None, help="Thư mục input (mặc định: auto-detect)")
     parser.add_argument("--processed-dir", default=None, help="Thư mục data/processed (mặc định: auto-detect)")
-    parser.add_argument("--report", default=str(root / "reports" / "data_validation_report.md"),
+    parser.add_argument("--report", default=str(root / "reports" / "thuc-hanh-1" / "data_validation_report.md"),
                         help="Đường dẫn file report markdown")
     parser.add_argument("--check-pdf", action="store_true",
                         help="Kiểm tra đọc slide PDF bằng PyMuPDF (cần đã cài fitz)")

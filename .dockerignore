@@ -1,0 +1,39 @@
+.git
+.dvc-site-cache
+.dvc-tmp
+.cache
+__pycache__
+*.pyc
+
+# Local secrets/config
+.env
+.env.local
+**/.env.local
+monitoring/langfuse/.env
+
+# Runtime outputs
+logs
+redis_data
+tmp
+output
+results
+
+# Large data and model artifacts are mounted or restored separately.
+data/indexes
+data/processed
+data/*.db
+data/*.db-shm
+data/*.db-wal
+input/slide
+input/transcribe_data
+models
+
+# Frontend build/runtime cache
+webapp/node_modules
+webapp/.next
+webapp/tsconfig.tsbuildinfo
+
+# Local helper artifacts
+*.log
+*.tmp
+.nfs*

@@ -26,15 +26,7 @@ RUN pip install --no-cache-dir \
     "rank-bm25==0.2.2" \
     "chromadb==1.5.8"
 
-# Group 3: Phoenix monitoring
-RUN pip install --no-cache-dir \
-    "arize-phoenix==14.16.0" \
-    "arize-phoenix-otel==0.16.0" \
-    "openinference-instrumentation==0.1.48" \
-    "openinference-instrumentation-openai==0.1.45" \
-    "openinference-semantic-conventions==0.1.29"
-
-# Group 4: API stack
+# Group 3: API stack
 RUN pip install --no-cache-dir \
     "fastapi==0.136.1" \
     "uvicorn==0.46.0" \
@@ -44,15 +36,14 @@ RUN pip install --no-cache-dir \
     "httpx==0.28.1" \
     "redis==7.4.0" \
     "celery==5.6.3" \
-    "flower==2.0.1"
+    "pytest==8.4.2"
 
-# Group 5: Document + UI
+# Group 4: Document export
 RUN pip install --no-cache-dir \
     "PyMuPDF==1.27.2.3" \
     "pymupdf4llm==1.27.2.3" \
-    "reportlab==4.4.10" \
-    "streamlit==1.57.0"
+    "reportlab==4.4.10"
 
 COPY . .
 
-EXPOSE 7860 8501 6006 5555
+EXPOSE 7860
