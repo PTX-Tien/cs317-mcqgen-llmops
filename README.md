@@ -22,6 +22,7 @@
 - [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
 - [Cài đặt](#-cài-đặt)
 - [Khởi động & dừng hệ thống](#-khởi-động--dừng-hệ-thống)
+- [Testing & CI](#-testing--ci)
 - [Hướng dẫn sử dụng](docs/huong-dan-su-dung.md)
 - [Monitoring & Evaluation với Langfuse](#-monitoring--evaluation-với-langfuse)
 - [DVC Pipeline](#-dvc-pipeline)
@@ -71,21 +72,23 @@ Các báo cáo hiện có:
 - [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
 - [Báo cáo Data Validation](reports/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
 - [Báo cáo Evaluation](reports/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
+- [Báo cáo API Demo & Testing](reports/api_testing_report.md): bộ test `pytest` (17 passed), kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/api.jpg`.
+- [Hướng dẫn Deployment cho lab](docs/deployment_for_lab.md): 2 chế độ triển khai (full với vLLM/Langfuse và UI/API-only), URL service, lưu ý GPU tensor-parallel, đồng bộ Docker/monitoring.
 - [Báo cáo Optimization Strategy trực quan](reports/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
 ---
 
 ## 🏆 Kết quả nổi bật
 
-| Hạng mục | Kết quả / ghi nhận hiện tại |
-| --- | --- |
-| Data validation | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 780 transcript chunks và 993 concept chunks. |
-| Evaluation run `exam_01` | 18 câu được yêu cầu, 8 câu accepted, 10 câu rejected/failed → **acceptance rate 44.4%**. |
-| Duplicate trong accepted | 0 câu trùng theo stem trong 8 câu accepted → dedup theo lịch sử hoạt động tốt ở run này. |
-| Adaptive RAG | Benchmark cho thấy adaptive retrieval không kém naive trên 4 topic thử nghiệm, trung bình Δ ≈ **+0.034**; HyDE chỉ được kích hoạt khi naive retrieval yếu. |
-| vLLM serving | Throughput tăng khoảng **3.85×** từ concurrency 1 → 4, trong khi latency P50 gần như giữ quanh ~5.7s. |
-| Async pipeline | Pipeline async nhanh hơn sequential khoảng **2.08×** ở phần generation-only trong thử nghiệm nhỏ. |
-| Observability | Langfuse ghi nhận input/output từng prompt stage, latency, token usage, accepted/failed counts, acceptance rate và `reject_stage.<stage>`. |
+| Hạng mục                 | Kết quả / ghi nhận hiện tại                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data validation          | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 780 transcript chunks và 993 concept chunks.                                   |
+| Evaluation run `exam_01` | 18 câu được yêu cầu, 8 câu accepted, 10 câu rejected/failed → **acceptance rate 44.4%**.                                                                   |
+| Duplicate trong accepted | 0 câu trùng theo stem trong 8 câu accepted → dedup theo lịch sử hoạt động tốt ở run này.                                                                   |
+| Adaptive RAG             | Benchmark cho thấy adaptive retrieval không kém naive trên 4 topic thử nghiệm, trung bình Δ ≈ **+0.034**; HyDE chỉ được kích hoạt khi naive retrieval yếu. |
+| vLLM serving             | Throughput tăng khoảng **3.85×** từ concurrency 1 → 4, trong khi latency P50 gần như giữ quanh ~5.7s.                                                      |
+| Async pipeline           | Pipeline async nhanh hơn sequential khoảng **2.08×** ở phần generation-only trong thử nghiệm nhỏ.                                                          |
+| Observability            | Langfuse ghi nhận input/output từng prompt stage, latency, token usage, accepted/failed counts, acceptance rate và `reject_stage.<stage>`.                 |
 
 ---
 
@@ -108,26 +111,26 @@ Luồng tối ưu prompt và trace bằng Langfuse được trình bày chi ti�
 
 ## 🛠️ Tech Stack
 
-| Layer                  | Công nghệ                             | Phiên bản |
-| ---------------------- | ------------------------------------- | --------- |
-| Frontend               | Next.js + TypeScript + Tailwind CSS   | 16.x      |
-| UI Components          | shadcn/ui                             | latest    |
-| State Management       | Zustand                               | 5.0.12    |
-| Backend API            | FastAPI                               | 0.136     |
-| Authentication         | JWT (python-jose)                     | 3.3.0     |
-| Task Queue             | Celery + Redis                        | 5.x       |
-| LLM Serving            | vLLM                                  | 0.8.5     |
-| LLM Model              | Qwen2.5-7B-Instruct                   | —         |
-| RAG Strategy           | HyDE + Sentence-Window + CrossEncoder | custom    |
-| Embedding Model        | BAAI/bge-m3                           | —         |
-| Vector Database        | ChromaDB                              | 1.5.x     |
-| Data Versioning        | DVC                                   | —         |
-| LLM Observability      | Langfuse (self-hosted)                | —         |
-| Relational DB          | SQLite (sqlmodel)                     | —         |
-| Structured Logging     | structlog (JSON)                      | 24.x      |
-| PDF Export             | ReportLab                             | —         |
-| CI/CD                  | GitHub Actions                        | —         |
-| Containerization       | Docker + Docker Compose v2            | —         |
+| Layer              | Công nghệ                             | Phiên bản |
+| ------------------ | ------------------------------------- | --------- |
+| Frontend           | Next.js + TypeScript + Tailwind CSS   | 16.x      |
+| UI Components      | shadcn/ui                             | latest    |
+| State Management   | Zustand                               | 5.0.12    |
+| Backend API        | FastAPI                               | 0.136     |
+| Authentication     | JWT (python-jose)                     | 3.3.0     |
+| Task Queue         | Celery + Redis                        | 5.x       |
+| LLM Serving        | vLLM                                  | 0.8.5     |
+| LLM Model          | Qwen2.5-7B-Instruct                   | —         |
+| RAG Strategy       | HyDE + Sentence-Window + CrossEncoder | custom    |
+| Embedding Model    | BAAI/bge-m3                           | —         |
+| Vector Database    | ChromaDB                              | 1.5.x     |
+| Data Versioning    | DVC                                   | —         |
+| LLM Observability  | Langfuse (self-hosted)                | —         |
+| Relational DB      | SQLite (sqlmodel)                     | —         |
+| Structured Logging | structlog (JSON)                      | 24.x      |
+| PDF Export         | ReportLab                             | —         |
+| CI/CD              | GitHub Actions                        | —         |
+| Containerization   | Docker + Docker Compose v2            | —         |
 
 ---
 
@@ -195,7 +198,7 @@ print('Done!')
 
 ### Bước 6 — Chuẩn bị dữ liệu đầu vào
 
-Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](<THÊM_LINK_GOOGLE_DRIVE_CỦA_NHÓM_VÀO_ĐÂY>)**
+Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](THÊM_LINK_GOOGLE_DRIVE_CỦA_NHÓM_VÀO_ĐÂY)**
 
 Sau khi tải về, đặt file vào đúng cấu trúc:
 
@@ -248,17 +251,49 @@ bash scripts/start_system.sh
 
 Sau khi hệ thống lên, các URL chính:
 
-| Service          | URL                          |
-| ---------------- | ---------------------------- |
-| Web UI           | `http://SERVER_IP:8081`      |
-| API Docs         | `http://SERVER_IP:8080/docs` |
-| Langfuse         | `http://SERVER_IP:8083`      |
+| Service  | URL                          |
+| -------- | ---------------------------- |
+| Web UI   | `http://SERVER_IP:8081`      |
+| API Docs | `http://SERVER_IP:8080/docs` |
+| Langfuse | `http://SERVER_IP:8083`      |
 
 ### Dừng hệ thống
 
 ```bash
 bash scripts/stop_system.sh
 ```
+
+---
+
+## 🧪 Testing & CI
+
+Hệ thống có bộ test `pytest` và CI (GitHub Actions). Chi tiết và bằng chứng chạy: xem
+[Báo cáo API Demo & Testing](reports/api_testing_report.md).
+
+```text
+tests/api/test_health.py                      # GET /health -> 200
+tests/api/test_auth.py                        # login thiếu field -> 422; sai user -> 401; admin login OK
+tests/api/test_generate_schema.py             # /generate không token -> 401; body sai -> 422
+tests/pipeline/test_chunk_schema.py           # transcript_chunks: JSON hợp lệ, đủ field, không trùng id
+tests/pipeline/test_concept_chunks_schema.py  # concept_chunks: đủ field bắt buộc, text không rỗng
+tests/test_pdf_exporter.py                    # export_exam_pdf() trả về bytes PDF hợp lệ
+.github/workflows/ci.yml                      # CI: pytest + validate_data_pipeline + build webapp
+```
+
+Chạy test:
+
+```bash
+python -m pytest tests/api tests/pipeline tests/test_pdf_exporter.py -q
+```
+
+Kết quả thực tế: **17 passed** (toàn bộ test API + pipeline + PDF chạy thật khi hệ thống đang lên),
+`GET /health` trả `status: ok` (cache + session Redis đều ok), và `npm run build` biên dịch
+thành công 10/10 route.
+
+![API testing: pytest 17 passed, /health, webapp build](figure/api.jpg)
+
+Ghi chú: test API dùng FastAPI `TestClient`; khi thiếu service nền (Redis/Celery) các test API
+tự **skip** thay vì fail, còn test schema pipeline và PDF luôn chạy.
 
 ---
 
@@ -346,11 +381,11 @@ transcript_chunking → indexing → benchmark_rag
 
 Ý nghĩa từng stage:
 
-| Stage | Output chính | Vai trò |
-| --- | --- | --- |
-| `transcript_chunking` | `data/processed/transcript_chunks_with_timestamps.jsonl` | Cắt transcript thành chunk có timestamp/youtube_url. |
-| `indexing` | `data/processed/concept_chunks.jsonl`, `data/indexes/` | Gộp slide + transcript, sinh concept chunks và build ChromaDB index. |
-| `benchmark_rag` | `data/benchmarks/rag_benchmark.log` | Chạy benchmark adaptive RAG để kiểm tra retrieval. |
+| Stage                 | Output chính                                             | Vai trò                                                              |
+| --------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
+| `transcript_chunking` | `data/processed/transcript_chunks_with_timestamps.jsonl` | Cắt transcript thành chunk có timestamp/youtube_url.                 |
+| `indexing`            | `data/processed/concept_chunks.jsonl`, `data/indexes/`   | Gộp slide + transcript, sinh concept chunks và build ChromaDB index. |
+| `benchmark_rag`       | `data/benchmarks/rag_benchmark.log`                      | Chạy benchmark adaptive RAG để kiểm tra retrieval.                   |
 
 Lệnh thường dùng:
 
@@ -425,15 +460,15 @@ curl http://SERVER_IP:8081/health
 
 ## 🔖 Release History
 
-| Tag           | Nội dung                                           |
-| ------------- | -------------------------------------------------- |
-| `data-v1.0`   | DVC tracking — slides, transcripts, index         |
-| `prompt-v1.0` | Prompt versioning v1 (P1–P8)                      |
-| `v1.1`        | Full DVC pipeline + Adaptive RAG + FastAPI + Celery |
-| `v1.8`        | Queue position display + `/queue/status` endpoint |
-| `v1.9`        | Langfuse tracing                                  |
-| `v2.0`        | JWT auth + Rate limiting + SQLite + structlog    |
-| `v2.1`        | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin) |
+| Tag           | Nội dung                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| `data-v1.0`   | DVC tracking — slides, transcripts, index                                                     |
+| `prompt-v1.0` | Prompt versioning v1 (P1–P8)                                                                  |
+| `v1.1`        | Full DVC pipeline + Adaptive RAG + FastAPI + Celery                                           |
+| `v1.8`        | Queue position display + `/queue/status` endpoint                                             |
+| `v1.9`        | Langfuse tracing                                                                              |
+| `v2.0`        | JWT auth + Rate limiting + SQLite + structlog                                                 |
+| `v2.1`        | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin)                              |
 | `v2.2`        | README cập nhật báo cáo validation/evaluation/optimization + minh họa Langfuse prompt tracing |
 
 ---
