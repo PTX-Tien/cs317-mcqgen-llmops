@@ -18,11 +18,13 @@
 - [Practical Extension for Lab](#-practical-extension-for-lab)
 - [Kết quả nổi bật](#-kết-quả-nổi-bật)
 - [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
+- [Optimization Strategy](#-optimization-strategy)
 - [Tech Stack](#️-tech-stack)
 - [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
 - [Cài đặt](#-cài-đặt)
 - [Khởi động & dừng hệ thống](#-khởi-động--dừng-hệ-thống)
 - [Hướng dẫn sử dụng](docs/huong-dan-su-dung.md)
+- [Monitoring & Evaluation với Langfuse](#-monitoring--evaluation-với-langfuse)
 - [DVC Pipeline](#-dvc-pipeline)
 - [Triển khai Docker](#-triển-khai-docker)
 - [Troubleshooting](#-troubleshooting)
@@ -48,39 +50,43 @@ Hệ thống nhận đầu vào là slide PDF và transcript bài giảng (Whisp
 
 ## 🧪 Practical Extension for Lab
 
-So với project mang tính lý thuyết, phiên bản dùng cho bài thực hành của nhóm bổ sung rõ các thành phần vận hành LLMOps sau:
+So với project ban đầu, phiên bản dùng cho bài thực hành nhấn mạnh các thành phần vận hành **LLMOps** thay vì chỉ dừng ở việc gọi LLM để sinh câu hỏi. Các phần mở rộng chính gồm:
 
-- DVC data pipeline cho xử lý slide/transcript và tái tạo dữ liệu.
-- Xây dựng RAG index với ChromaDB để phục vụ truy hồi ngữ cảnh.
-- Local LLM serving bằng vLLM để tận dụng tài nguyên GPU trên máy của nhóm.
-- Tầng phục vụ bất đồng bộ với FastAPI / Celery / Redis.
-- Langfuse tracing cho session, user, latency, token usage, accepted/rejected scores và theo dõi từng pipeline stage.
-- Kiểm thử, CI và triển khai bằng Docker / Docker Compose.
+- **Data pipeline có thể tái lập**: DVC xử lý slide/transcript, sinh chunk, build vector index và benchmark retrieval.
+- **RAG optimization**: hỗ trợ adaptive retrieval với naive retrieval, HyDE, sentence-window collection và cross-encoder rerank.
+- **Prompt optimization**: quản lý prompt theo version, bổ sung style bank từ đề CS116 thật, guardrail cho opening style và misconception-guided distractor.
+- **Serving/runtime optimization**: phục vụ Qwen2.5-7B-Instruct bằng vLLM local, tận dụng batching, prefix caching, async pipeline và dynamic concurrency.
+- **System optimization**: FastAPI + Celery + Redis cho xử lý bất đồng bộ, Redis cache cho request trùng và dedup câu hỏi theo lịch sử.
+- **Observability**: Langfuse tracing cho session, user, latency, token usage, input/output từng stage, accepted/rejected scores và reject reason.
 
 **Lưu ý quan trọng:**
 
-- Nhóm **không fine-tune model**.
-- Nhóm tối ưu hệ thống chủ yếu bằng **RAG, prompt engineering, serving runtime và observability**.
-- **Langfuse là kênh monitoring/tracing chính** cho quá trình sinh đề và đánh giá pipeline.
+- Nhóm **không fine-tune / quantize / optimize trọng số** của Qwen2.5-7B-Instruct.
+- Phần "model optimization" trong project này được hiểu theo đúng bối cảnh **LLMOps**: tối ưu retrieval, prompt, runtime serving, cache, concurrency và monitoring.
+- Các kết quả đo phụ thuộc GPU, version vLLM và workload. Những mục chưa đo đầy đủ được ghi rõ trong báo cáo, đặc biệt là so sánh prompt v1/v2 và prefix-cache ablation.
 
 ### Báo cáo liên quan tới bài thực hành
 
-Phần này dành riêng cho các nội dung bổ sung phục vụ học phần thực hành MLOps/LLMOps.
-
 Các báo cáo hiện có:
 
-- [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả quá trình xử lý slide/transcript, chunking, embedding, xây dựng ChromaDB index và các metric cần ghi nhận cho pipeline dữ liệu.
+- [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
+- [Báo cáo Data Validation](reports/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
+- [Báo cáo Evaluation](reports/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
+- [Báo cáo Optimization Summary](reports/optimization_summary.md): tổng hợp các tối ưu RAG, prompt, vLLM serving/runtime, async pipeline, cache, dedup và các mục không nên claim quá mức.
 
 ---
 
 ## 🏆 Kết quả nổi bật
 
-| Metric                       | Kết quả                                                  |
-| ---------------------------- | -------------------------------------------------------- |
-| Thời gian sinh 1 MCQ         | ~2-3 phút (giảm từ ~60 phút thủ công, cải thiện **20×**) |
-| Quality score trung bình     | **1.00 / 1.00**                                          |
-| RAG improvement (trung bình) | +46% so với naive retrieval                              |
-| Latency P50 / P99            | 45.1s / 2m 3s                                            |
+| Hạng mục | Kết quả / ghi nhận hiện tại |
+| --- | --- |
+| Data validation | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 780 transcript chunks và 993 concept chunks. |
+| Evaluation run `exam_01` | 18 câu được yêu cầu, 8 câu accepted, 10 câu rejected/failed → **acceptance rate 44.4%**. |
+| Duplicate trong accepted | 0 câu trùng theo stem trong 8 câu accepted → dedup theo lịch sử hoạt động tốt ở run này. |
+| Adaptive RAG | Benchmark cho thấy adaptive retrieval không kém naive trên 4 topic thử nghiệm, trung bình Δ ≈ **+0.034**; HyDE chỉ được kích hoạt khi naive retrieval yếu. |
+| vLLM serving | Throughput tăng khoảng **3.85×** từ concurrency 1 → 4, trong khi latency P50 gần như giữ quanh ~5.7s. |
+| Async pipeline | Pipeline async nhanh hơn sequential khoảng **2.08×** ở phần generation-only trong thử nghiệm nhỏ. |
+| Observability | Langfuse ghi nhận input/output từng prompt stage, latency, token usage, accepted/failed counts, acceptance rate và `reject_stage.<stage>`. |
 
 ---
 
@@ -92,10 +98,74 @@ Tóm tắt:
 
 - Next.js: login, dashboard, generate, history, quiz.
 - FastAPI: auth, generate, status, results, PDF export.
-- Celery + Redis: async queue và progress tracking.
-- RAG pipeline: slide PDF + transcript → clean/chunk/index → ChromaDB.
-- vLLM: host Qwen2.5-7B-Instruct local.
-- Langfuse: trace session, user, prompt stage, score, token usage.
+- Celery + Redis: async queue, progress tracking, cache và load tracking.
+- RAG pipeline: slide PDF + transcript → clean/chunk/index → ChromaDB → adaptive retrieval/rerank.
+- vLLM: host Qwen2.5-7B-Instruct local qua OpenAI-compatible API.
+- Langfuse: trace session, user, prompt stage, input/output, latency, token usage, score và reject stage.
+
+Luồng tối ưu prompt và trace bằng Langfuse:
+
+![Prompt optimization and Langfuse tracing](figure/prompt-langfuse-tracing.png)
+
+---
+
+## 🔍 Optimization Strategy
+
+MCQGen không tối ưu bằng cách train lại mô hình, mà tối ưu theo vòng lặp vận hành LLMOps: **retrieval → prompt → serving/runtime → monitoring → sửa lỗi pipeline**.
+
+### 1. Retrieval optimization
+
+Repo triển khai adaptive retrieval trong `src/mcqgen/advanced_retrieval.py`:
+
+- Trước hết hệ thống embed topic bằng `BAAI/bge-m3` và thử naive retrieval trên ChromaDB.
+- Nếu similarity đủ tốt, pipeline dùng `naive+rerank` để tiết kiệm chi phí gọi LLM.
+- Nếu naive retrieval yếu, pipeline kích hoạt **HyDE** để sinh câu hỏi giả định, trộn embedding theo tỉ lệ `0.6*topic + 0.4*hypo`, sau đó retrieve lại.
+- Candidate cuối cùng được xếp hạng lại bằng `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+- Code có hỗ trợ sentence-window retrieval; khi collection `concept_chunks_sw` chưa sẵn sàng, hệ thống fallback về collection chuẩn.
+
+### 2. Prompt optimization
+
+Prompt optimization của nhóm không chỉ là chỉnh prompt thủ công. Nhóm dùng Langfuse để quan sát **input/output của từng layer sinh câu hỏi**, từ đó biết prompt nào đang gây lỗi và cần sửa ở đâu.
+
+Các stage chính được trace:
+
+```text
+RAG context
+  → P1: sinh stem + correct answer
+  → P4: sinh distractor candidates
+  → P5: chain-of-thought evaluate
+  → P6: loại distractor xấu
+  → P7: chọn option cuối
+  → P8: assemble MCQ JSON
+  → opening_check / opening_repair
+  → P9: explanation
+  → final_eval
+```
+
+Cách nhóm tối ưu prompt:
+
+- Dùng `prompts/v1/metadata.json` để quản lý prompt gốc P1–P8.
+- Bổ sung `prompts/v2/style_bank.json` để đưa few-shot từ đề CS116 thật, giúp model học style diễn đạt tự nhiên hơn.
+- Dùng `prompts/v2/bad_openings.json` và `opening_families.json` để phát hiện opening yếu; nếu opening không đạt thì repair, nếu vẫn lỗi thì reject ở stage `opening_check`.
+- Dùng `prompts/v2/misconception_types.json` để định hướng distractor theo các lỗi sai thường gặp thay vì tạo option nhiễu quá hiển nhiên.
+- Dùng lịch sử câu hỏi của user để tránh sinh lại câu hỏi quá giống câu cũ (`dedup_history`).
+
+Nhờ trace Langfuse, nhóm có thể biết một MCQ được **accepted** hay **failed/rejected** vì lý do nào: JSON parse lỗi, thiếu distractor, opening không đạt, final evaluation không đạt, hoặc trùng câu hỏi. Phần này được trình bày rõ hơn trong mục [Monitoring & Evaluation với Langfuse](#-monitoring--evaluation-với-langfuse).
+
+### 3. Serving/runtime optimization
+
+Các thử nghiệm trong `vllm/` cho thấy hệ thống được tối ưu ở tầng serving thay vì fine-tune model:
+
+- vLLM phục vụ Qwen2.5-7B-Instruct local với continuous batching, PagedAttention và cấu hình `--max-num-seqs`.
+- `pipeline_mcq.py` chạy nhiều câu MCQ bất đồng bộ để vLLM có thể batch/schedule nhiều LLM call song song.
+- `start_system.sh` bật prefix caching và cấu hình concurrency dựa trên tài nguyên GPU.
+- `api/core/load_tracking.py` và Redis hỗ trợ dynamic concurrency, global slot guard và tag Langfuse theo traffic/load test.
+
+### 4. System optimization
+
+- Redis cache trong `api/core/cache.py` lưu `task_id` cho request có cùng `topics + retrieval_mode`, giúp request trùng không phải chạy lại toàn bộ pipeline.
+- Dedup theo lịch sử trong `pipeline_mcq.py` giảm khả năng sinh lại câu hỏi giống các lần trước.
+- Celery task tổng hợp `accepted_questions`, `failed_questions`, `acceptance_rate` và `reject_stage.<stage>` để đẩy lên Langfuse score.
 
 ---
 
@@ -263,13 +333,87 @@ Chi tiết được tách sang file riêng:
 
 ---
 
+## 📡 Monitoring & Evaluation với Langfuse
+
+Langfuse là kênh chính để nhóm debug và tối ưu pipeline sinh đề. Trong code, các wrapper tại `monitoring/langfuse_tracing.py` được dùng để tạo observation, cập nhật output, metadata, usage và score cho từng trace.
+
+### Trace hierarchy
+
+Một lượt generate đề thường có cấu trúc trace như sau:
+
+```text
+mcqgen.generate_exam
+├── api.generate.submit
+├── celery.run_mcq_pipeline
+│   ├── rag.retrieve / rag.cache_hit
+│   ├── llm.P1_gen_stem_key
+│   ├── llm.P4_option_candidates
+│   ├── llm.P5_cot_evaluate
+│   ├── llm.P6_remove_bad
+│   ├── llm.P7_select_final
+│   ├── llm.P8_assemble
+│   ├── guardrail.opening_check
+│   ├── llm.OPENING_REPAIR
+│   ├── llm.P9_explanation
+│   └── llm.final_eval
+└── trace scores: accepted_questions, failed_questions, acceptance_rate, reject_stage.<stage>
+```
+
+### Vì sao trace giúp tối ưu prompt?
+
+Mỗi prompt stage đều lưu input/output rút gọn, metadata và usage. Khi một MCQ bị reject, nhóm có thể mở trace để xác định lỗi xảy ra ở layer nào:
+
+- **RAG lỗi**: context retrieval không liên quan hoặc similarity thấp.
+- **P1 lỗi**: stem/correct answer chưa rõ hoặc output không parse được JSON.
+- **P4/P5/P6/P7 lỗi**: distractor không hợp lý, quá dễ, trùng ý hoặc không đúng misconception.
+- **Opening lỗi**: câu hỏi mở đầu theo template xấu, bị guardrail phát hiện và repair/reject.
+- **Final eval lỗi**: câu hỏi không đủ chất lượng, không đúng topic/chapter hoặc chưa đạt chuẩn format.
+- **Dedup lỗi**: câu hỏi quá giống lịch sử của user.
+
+Từ các failure stage này, nhóm quay lại chỉnh đúng prompt tương ứng thay vì sửa toàn bộ pipeline một cách cảm tính. Ví dụ: nếu nhiều câu fail ở `opening_check`, cần cập nhật `bad_openings.json` hoặc `opening_families.json`; nếu fail ở distractor, cần bổ sung `misconception_types.json` hoặc ràng buộc P4/P5 rõ hơn.
+
+### Cách xem nhanh trên dashboard
+
+Sau khi khởi động hệ thống:
+
+```bash
+bash scripts/start_system.sh
+```
+
+Mở Langfuse tại:
+
+```text
+http://SERVER_IP:8083
+```
+
+Các trường nên kiểm tra:
+
+- Trace name: `mcqgen.generate_exam`.
+- Observation name: `rag.retrieve`, `llm.P1_gen_stem_key`, `llm.P4_option_candidates`, `guardrail.opening_check`, `llm.final_eval`.
+- Scores: `accepted_questions`, `failed_questions`, `acceptance_rate`, `reject_stage.<stage>`.
+- Tags/metadata: `traffic:*`, `ccu:*`, `usecase:generate_exam`, `run:*`, `loadtest:<id>`.
+
+### Evaluation hiện tại
+
+Run `exam_01` hiện có 18 câu được yêu cầu, 8 câu accepted và 10 câu rejected/failed, tương ứng **acceptance rate 44.4%**. Run này chưa lưu chi tiết `failure_info_json`, vì vậy muốn phân tích reject đầy đủ cần generate đề mới bằng pipeline hiện tại rồi chạy lại script evaluation tương ứng trong môi trường repo.
+
+---
+
 ## 🔄 DVC Pipeline
 
-Pipeline gồm 3 stages:
+Pipeline trong `dvc.yaml` gồm 3 stages:
 
 ```text
 transcript_chunking → indexing → benchmark_rag
 ```
+
+Ý nghĩa từng stage:
+
+| Stage | Output chính | Vai trò |
+| --- | --- | --- |
+| `transcript_chunking` | `data/processed/transcript_chunks_with_timestamps.jsonl` | Cắt transcript thành chunk có timestamp/youtube_url. |
+| `indexing` | `data/processed/concept_chunks.jsonl`, `data/indexes/` | Gộp slide + transcript, sinh concept chunks và build ChromaDB index. |
+| `benchmark_rag` | `data/benchmarks/rag_benchmark.log` | Chạy benchmark adaptive RAG để kiểm tra retrieval. |
 
 Lệnh thường dùng:
 
@@ -278,6 +422,8 @@ dvc dag
 dvc repro
 dvc status
 ```
+
+Sau khi chạy pipeline, đối chiếu thêm với [Báo cáo Data Validation](reports/data_validation_report.md) để kiểm tra số chunk, field bắt buộc, duplicate id, lỗi parse và các warning dữ liệu.
 
 Khi thêm dữ liệu mới:
 
@@ -351,6 +497,7 @@ curl http://SERVER_IP:8081/health
 | `v1.9`        | Langfuse tracing                                  |
 | `v2.0`        | JWT auth + Rate limiting + SQLite + structlog    |
 | `v2.1`        | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin) |
+| `v2.2`        | README cập nhật báo cáo validation/evaluation/optimization + minh họa Langfuse prompt tracing |
 
 ---
 
