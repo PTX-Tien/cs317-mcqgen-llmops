@@ -208,16 +208,18 @@ Các metric dưới đây nên được cập nhật sau mỗi lần chạy pipe
 
 | Metric | Giá trị |
 | ------ | ------- |
-| Số slide PDF | TBD |
-| Số transcript files | TBD |
-| Số transcript chunks | TBD |
-| Số concept chunks | TBD |
-| Số sentence-window chunks | TBD |
-| Min chunk length | TBD |
-| Avg chunk length | TBD |
-| Max chunk length | TBD |
-| Số đoạn nhiễu/trùng đã loại | TBD |
-| Thời gian chạy `dvc repro` | TBD |
+| Số slide PDF | 11 |
+| Số transcript files | 79 JSON files (78 transcript hữu ích + 1 file summary) |
+| Số transcript chunks | 924 |
+| Số concept chunks | 1220 |
+| Số sentence-window chunks | 4756 |
+| Min chunk length | 5 từ |
+| Avg chunk length | 153.61 từ |
+| Max chunk length | 264 từ |
+| Số đoạn nhiễu/trùng đã loại | 0 chunk có `text_clean` khác `text` trong output hiện tại |
+| Thời gian chạy `dvc repro` | DVC wrapper lỗi DB; stage-by-stage tương đương 15m35s (transcript_chunking 4.54s + indexing 483.13s + sentence-window 447.57s) |
+
+> Ghi chú: lệnh `dvc repro` hiện tại trên máy nhóm báo lỗi `unable to open database file`, nên số thời gian ở trên được đo bằng cách chạy từng stage tương đương để vẫn ghi nhận được số liệu thực tế của pipeline dữ liệu.
 
 ## 8. Cách tái tạo pipeline
 
