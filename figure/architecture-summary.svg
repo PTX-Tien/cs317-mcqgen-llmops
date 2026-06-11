@@ -1,0 +1,109 @@
+<svg width="1400" height="520" viewBox="0 0 1400 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title>MCQGen Architecture Summary</title>
+  <desc>Compact architecture diagram for the MCQGen LLMOps system.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f7f9ff"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title { font: 700 28px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 15px Arial, sans-serif; fill: #475569; }
+      .box-title { font: 700 18px Arial, sans-serif; fill: #0f172a; }
+      .box-text { font: 400 14px Arial, sans-serif; fill: #334155; }
+      .small { font: 400 12px Arial, sans-serif; fill: #64748b; }
+      .box { fill: url(#box); stroke: #cbd5e1; stroke-width: 1.4; rx: 18; ry: 18; }
+      .core { fill: #eff6ff; stroke: #60a5fa; stroke-width: 1.6; rx: 18; ry: 18; }
+      .accent { fill: url(#accent); }
+      .line { stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="520" fill="url(#bg)"/>
+
+  <text x="700" y="42" text-anchor="middle" class="title">MCQGen - LLMOps Architecture Summary</text>
+  <text x="700" y="70" text-anchor="middle" class="subtitle">RAG + prompt engineering + vLLM serving + FastAPI/Celery + Langfuse tracing</text>
+
+  <!-- top row -->
+  <rect x="70" y="120" width="220" height="120" class="box"/>
+  <rect x="320" y="120" width="260" height="120" class="core"/>
+  <rect x="610" y="120" width="250" height="120" class="box"/>
+  <rect x="900" y="120" width="220" height="120" class="box"/>
+  <rect x="1150" y="120" width="180" height="120" class="box"/>
+
+  <circle cx="105" cy="155" r="14" fill="#2563eb"/>
+  <text x="138" y="151" class="box-title">Browser / Next.js</text>
+  <text x="138" y="177" class="box-text">Login, dashboard</text>
+  <text x="138" y="197" class="box-text">generate, history, quiz</text>
+
+  <circle cx="355" cy="155" r="14" fill="#7c3aed"/>
+  <text x="388" y="151" class="box-title">FastAPI API</text>
+  <text x="388" y="177" class="box-text">Auth, /generate, /status</text>
+  <text x="388" y="197" class="box-text">WebSocket, PDF export</text>
+
+  <circle cx="645" cy="155" r="14" fill="#0ea5e9"/>
+  <text x="678" y="151" class="box-title">Celery + Redis</text>
+  <text x="678" y="177" class="box-text">Async job queue</text>
+  <text x="678" y="197" class="box-text">Progress, retries, cache</text>
+
+  <circle cx="935" cy="155" r="14" fill="#22c55e"/>
+  <text x="968" y="151" class="box-title">RAG Pipeline</text>
+  <text x="968" y="177" class="box-text">Slides + transcripts</text>
+  <text x="968" y="197" class="box-text">Chunking, indexing, rerank</text>
+
+  <circle cx="1185" cy="155" r="14" fill="#f97316"/>
+  <text x="1218" y="151" class="box-title">vLLM</text>
+  <text x="1218" y="177" class="box-text">Qwen2.5-7B-Instruct</text>
+  <text x="1218" y="197" class="box-text">OpenAI-compatible API</text>
+
+  <!-- arrows top -->
+  <path d="M290 180 L320 180" class="line"/>
+  <path d="M580 180 L610 180" class="line"/>
+  <path d="M860 180 L900 180" class="line"/>
+  <path d="M1120 180 L1150 180" class="line"/>
+
+  <!-- bottom row -->
+  <rect x="140" y="300" width="280" height="130" class="box"/>
+  <rect x="470" y="300" width="300" height="130" class="box"/>
+  <rect x="820" y="300" width="260" height="130" class="box"/>
+  <rect x="1120" y="300" width="210" height="130" class="box"/>
+
+  <text x="175" y="336" class="box-title">Data Pipeline / DVC</text>
+  <text x="175" y="362" class="box-text">Slide PDF + Whisper transcript</text>
+  <text x="175" y="382" class="box-text">Clean → chunk → embed → index</text>
+  <text x="175" y="402" class="small">Artifacts: JSONL, ChromaDB, DVC stages</text>
+
+  <text x="505" y="336" class="box-title">MCQ Generation Pipeline</text>
+  <text x="505" y="362" class="box-text">P1–P9 staged prompts</text>
+  <text x="505" y="382" class="box-text">Accepted / rejected / explanation</text>
+  <text x="505" y="402" class="small">Adaptive RAG + duplicate prevention</text>
+
+  <text x="855" y="336" class="box-title">Observability</text>
+  <text x="855" y="362" class="box-text">Langfuse traces, sessions, scores</text>
+  <text x="855" y="382" class="box-text">Latency, token usage, TTFT</text>
+  <text x="855" y="402" class="small">Structured logs + correlation ID</text>
+
+  <text x="1155" y="336" class="box-title">Storage</text>
+  <text x="1155" y="362" class="box-text">SQLite, history, attempts</text>
+  <text x="1155" y="382" class="box-text">PDF export, exam archive</text>
+  <text x="1155" y="402" class="small">User data / exam metadata</text>
+
+  <path d="M210 240 L210 300" class="line"/>
+  <path d="M620 240 L620 300" class="line"/>
+  <path d="M950 240 L950 300" class="line"/>
+  <path d="M1230 240 L1230 300" class="line"/>
+
+  <rect x="580" y="450" width="240" height="28" rx="14" ry="14" fill="url(#accent)"/>
+  <text x="700" y="469" text-anchor="middle" class="small" fill="#ffffff">LLMOps practical stack for CS317</text>
+</svg>
