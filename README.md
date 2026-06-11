@@ -18,7 +18,6 @@
 - [Practical Extension for Lab](#-practical-extension-for-lab)
 - [Kết quả nổi bật](#-kết-quả-nổi-bật)
 - [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
-- [Optimization Strategy](#-optimization-strategy)
 - [Tech Stack](#️-tech-stack)
 - [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
 - [Cài đặt](#-cài-đặt)
@@ -72,7 +71,7 @@ Các báo cáo hiện có:
 - [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
 - [Báo cáo Data Validation](reports/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
 - [Báo cáo Evaluation](reports/eval_results.md): tổng hợp run sinh đề `exam_01`, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
-- [Báo cáo Optimization Summary](reports/optimization_summary.md): tổng hợp các tối ưu RAG, prompt, vLLM serving/runtime, async pipeline, cache, dedup và các mục không nên claim quá mức.
+- [Báo cáo Optimization Strategy trực quan](reports/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
 ---
 
@@ -103,69 +102,7 @@ Tóm tắt:
 - vLLM: host Qwen2.5-7B-Instruct local qua OpenAI-compatible API.
 - Langfuse: trace session, user, prompt stage, input/output, latency, token usage, score và reject stage.
 
-Luồng tối ưu prompt và trace bằng Langfuse:
-
-![Prompt optimization and Langfuse tracing](figure/prompt-langfuse-tracing.png)
-
----
-
-## 🔍 Optimization Strategy
-
-MCQGen không tối ưu bằng cách train lại mô hình, mà tối ưu theo vòng lặp vận hành LLMOps: **retrieval → prompt → serving/runtime → monitoring → sửa lỗi pipeline**.
-
-### 1. Retrieval optimization
-
-Repo triển khai adaptive retrieval trong `src/mcqgen/advanced_retrieval.py`:
-
-- Trước hết hệ thống embed topic bằng `BAAI/bge-m3` và thử naive retrieval trên ChromaDB.
-- Nếu similarity đủ tốt, pipeline dùng `naive+rerank` để tiết kiệm chi phí gọi LLM.
-- Nếu naive retrieval yếu, pipeline kích hoạt **HyDE** để sinh câu hỏi giả định, trộn embedding theo tỉ lệ `0.6*topic + 0.4*hypo`, sau đó retrieve lại.
-- Candidate cuối cùng được xếp hạng lại bằng `cross-encoder/ms-marco-MiniLM-L-6-v2`.
-- Code có hỗ trợ sentence-window retrieval; khi collection `concept_chunks_sw` chưa sẵn sàng, hệ thống fallback về collection chuẩn.
-
-### 2. Prompt optimization
-
-Prompt optimization của nhóm không chỉ là chỉnh prompt thủ công. Nhóm dùng Langfuse để quan sát **input/output của từng layer sinh câu hỏi**, từ đó biết prompt nào đang gây lỗi và cần sửa ở đâu.
-
-Các stage chính được trace:
-
-```text
-RAG context
-  → P1: sinh stem + correct answer
-  → P4: sinh distractor candidates
-  → P5: chain-of-thought evaluate
-  → P6: loại distractor xấu
-  → P7: chọn option cuối
-  → P8: assemble MCQ JSON
-  → opening_check / opening_repair
-  → P9: explanation
-  → final_eval
-```
-
-Cách nhóm tối ưu prompt:
-
-- Dùng `prompts/v1/metadata.json` để quản lý prompt gốc P1–P8.
-- Bổ sung `prompts/v2/style_bank.json` để đưa few-shot từ đề CS116 thật, giúp model học style diễn đạt tự nhiên hơn.
-- Dùng `prompts/v2/bad_openings.json` và `opening_families.json` để phát hiện opening yếu; nếu opening không đạt thì repair, nếu vẫn lỗi thì reject ở stage `opening_check`.
-- Dùng `prompts/v2/misconception_types.json` để định hướng distractor theo các lỗi sai thường gặp thay vì tạo option nhiễu quá hiển nhiên.
-- Dùng lịch sử câu hỏi của user để tránh sinh lại câu hỏi quá giống câu cũ (`dedup_history`).
-
-Nhờ trace Langfuse, nhóm có thể biết một MCQ được **accepted** hay **failed/rejected** vì lý do nào: JSON parse lỗi, thiếu distractor, opening không đạt, final evaluation không đạt, hoặc trùng câu hỏi. Phần này được trình bày rõ hơn trong mục [Monitoring & Evaluation với Langfuse](#-monitoring--evaluation-với-langfuse).
-
-### 3. Serving/runtime optimization
-
-Các thử nghiệm trong `vllm/` cho thấy hệ thống được tối ưu ở tầng serving thay vì fine-tune model:
-
-- vLLM phục vụ Qwen2.5-7B-Instruct local với continuous batching, PagedAttention và cấu hình `--max-num-seqs`.
-- `pipeline_mcq.py` chạy nhiều câu MCQ bất đồng bộ để vLLM có thể batch/schedule nhiều LLM call song song.
-- `start_system.sh` bật prefix caching và cấu hình concurrency dựa trên tài nguyên GPU.
-- `api/core/load_tracking.py` và Redis hỗ trợ dynamic concurrency, global slot guard và tag Langfuse theo traffic/load test.
-
-### 4. System optimization
-
-- Redis cache trong `api/core/cache.py` lưu `task_id` cho request có cùng `topics + retrieval_mode`, giúp request trùng không phải chạy lại toàn bộ pipeline.
-- Dedup theo lịch sử trong `pipeline_mcq.py` giảm khả năng sinh lại câu hỏi giống các lần trước.
-- Celery task tổng hợp `accepted_questions`, `failed_questions`, `acceptance_rate` và `reject_stage.<stage>` để đẩy lên Langfuse score.
+Luồng tối ưu prompt và trace bằng Langfuse được trình bày chi tiết trong [Báo cáo Optimization Strategy trực quan](reports/optimization_summary.md).
 
 ---
 
