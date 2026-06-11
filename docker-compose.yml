@@ -20,13 +20,22 @@ services:
       - "7860:7860"
     environment:
       - VLLM_URL=http://host.docker.internal:7681/v1
+      - VLLM_MODEL=mcqgen
       - CELERY_BROKER=redis://redis:6379/0
-      - CELERY_BACKEND=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
+      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
+      - CELERY_QUEUE_ISOLATE_BY_USER=0
+      - CELERY_QUEUE_HIGH=mcq.high
+      - CELERY_QUEUE_LOW=mcq.low
     depends_on:
       redis:
         condition: service_healthy
     command: uvicorn api.main:app --host 0.0.0.0 --port 7860
     volumes:
+      - ./data:/app/data
+      - ./input:/app/input
       - ./output:/app/output
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -36,28 +45,24 @@ services:
     restart: unless-stopped
     environment:
       - VLLM_URL=http://host.docker.internal:7681/v1
+      - VLLM_MODEL=mcqgen
       - CELERY_BROKER=redis://redis:6379/0
-      - CELERY_BACKEND=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
+      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
+      - CELERY_QUEUE_ISOLATE_BY_USER=0
+      - CELERY_QUEUE_HIGH=mcq.high
+      - CELERY_QUEUE_LOW=mcq.low
     depends_on:
       redis:
         condition: service_healthy
-    command: celery -A api.tasks worker --loglevel=info --concurrency=1
+    command: celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
     volumes:
       - ./data:/app/data
       - ./input:/app/input
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-  flower:
-    image: mcqgen-api:v1.0
-    restart: unless-stopped
-    ports:
-      - "5555:5555"
-    environment:
-      - CELERY_BROKER=redis://redis:6379/0
-    depends_on:
-      - redis
-    command: celery -A api.tasks flower --port=5555
 
 volumes:
   redis_data:

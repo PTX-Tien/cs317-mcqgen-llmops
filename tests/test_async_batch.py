@@ -1,8 +1,15 @@
 """Test async batch: 5 requests song song → đo throughput thực tế"""
+import os, sys
+
+if "pytest" in sys.modules and os.getenv("RUN_LLM_SMOKE_TESTS") != "1":
+    import pytest
+    pytest.skip("LLM smoke test; set RUN_LLM_SMOKE_TESTS=1 to run", allow_module_level=True)
+
 import asyncio, time, json
 from openai import AsyncOpenAI
 
-client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="x")
+client = AsyncOpenAI(base_url=os.getenv("VLLM_URL", "http://localhost:7681/v1"), api_key="x")
+MODEL_NAME = os.getenv("VLLM_MODEL", "mcqgen")
 
 PROMPT = """Tạo 1 câu MCQ tiếng Việt về topic Python Pandas, độ khó G2.
 Output JSON: {"question_text":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"correct_answers":["A"]}
@@ -11,7 +18,7 @@ Chỉ JSON, không text khác."""
 async def single_call(i):
     t0 = time.time()
     resp = await client.chat.completions.create(
-        model="mcqgen",
+        model=MODEL_NAME,
         messages=[{"role": "user", "content": PROMPT}],
         temperature=0.7,
         max_tokens=512,

@@ -26,6 +26,8 @@ tmp/
 
 # Output experiments
 output/
+.dvc-tmp/
+.cache/
 vllm/logs/
 vllm/results/
 vllm_demo_webapp/server.log
@@ -40,6 +42,7 @@ webapp/.next/
 webapp/node_modules/
 webapp/tsconfig.tsbuildinfo
 webapp/.env.local
+.env.local
 
 # Temp files
 .nfs*
@@ -52,6 +55,7 @@ test_output.json
 # vLLM
 vllm_server.log
 .env
+.dvc-site-cache/
 
 results
 dev

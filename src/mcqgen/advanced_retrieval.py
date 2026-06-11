@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import chromadb
 
 # ── Config ────────────────────────────────────────────────────────
-INDEX_DIR  = Path("data/indexes")
+INDEX_DIR  = Path(os.getenv("INDEX_DIR", "data/indexes"))
 VLLM_URL   = os.getenv("VLLM_URL", "http://localhost:8000/v1")
 MODEL      = os.getenv("VLLM_MODEL", "mcqgen")
 RETRIEVAL_MODES = {"fast", "auto", "quality"}

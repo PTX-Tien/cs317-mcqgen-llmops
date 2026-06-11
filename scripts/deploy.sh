@@ -18,8 +18,13 @@ WEBAPP=$PROJECT/webapp
 NGINX_CONF=$PROJECT/nginx/mcqgen.conf
 WEBAPP_PORT=${WEBAPP_PORT:-8081}
 
-source /mmlab_students/storageStudents/nguyenvd/anaconda3/etc/profile.d/conda.sh
-conda activate mcqgen_v2 2>/dev/null
+if command -v conda >/dev/null 2>&1; then
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate mcqgen_v2 2>/dev/null
+else
+    echo "Conda not found. Please initialize conda before deploying." >&2
+    exit 1
+fi
 
 mkdir -p $LOG_DIR
 

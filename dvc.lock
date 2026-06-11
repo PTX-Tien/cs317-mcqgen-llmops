@@ -1,65 +1,60 @@
 schema: '2.0'
 stages:
   indexing:
-    cmd: python indexing.py
+    cmd: HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.indexing
     deps:
-    - path: common.py
-      hash: md5
-      md5: c0e5f3e4343c1076c6064d9967d7b726
-      size: 52016
     - path: data/processed/transcript_chunks_with_timestamps.jsonl
       hash: md5
       md5: 0480a16d544a038d100380f11f935f89
       size: 1510428
-    - path: indexing.py
-      hash: md5
-      md5: 0730f136d67e44aa8939e619d8554217
-      size: 13265
     - path: input/slide/
       hash: md5
       md5: f65cb39bafcda1d62f6b2b696ba28b29.dir
       size: 17754739
       nfiles: 11
+    - path: src/mcqgen/common.py
+      hash: md5
+      md5: 7d547615b42f13c4598e95672a674ace
+      size: 53272
+    - path: src/mcqgen/indexing.py
+      hash: md5
+      md5: 7aef3e33ff06d6e8c4f31d47dfb35ee6
+      size: 13198
     outs:
     - path: data/indexes/
       hash: md5
-      md5: a2467f5b5838452f3ce4b9a483cfad8d.dir
-      size: 23839552
+      md5: fc4c1764c4076543e6847b47139f6f16.dir
+      size: 23860100
       nfiles: 6
     - path: data/processed/concept_chunks.jsonl
       hash: md5
       md5: 1e25b9f604e0c1bf794eeb89cbe2cb5e
       size: 1731939
   benchmark_rag:
-    cmd: mkdir -p data/benchmarks && python advanced_retrieval.py adaptive > 
+    cmd: mkdir -p data/benchmarks .dvc-tmp && rm -rf .dvc-tmp/indexes && cp -R 
+      data/indexes .dvc-tmp/indexes && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 
+      INDEX_DIR=.dvc-tmp/indexes VLLM_URL=http://localhost:7681/v1 python -m 
+      src.mcqgen.advanced_retrieval adaptive >
       data/benchmarks/rag_benchmark.log 2>&1
     deps:
-    - path: advanced_retrieval.py
-      hash: md5
-      md5: b6c441da31e698e9a935ada50ddc0c8d
-      size: 18926
     - path: data/indexes/
       hash: md5
-      md5: 09bf0529ee29149a247656e5c0147ef1.dir
-      size: 23839552
+      md5: fc4c1764c4076543e6847b47139f6f16.dir
+      size: 23860100
       nfiles: 6
+    - path: src/mcqgen/advanced_retrieval.py
+      hash: md5
+      md5: 78067d11cb9eef588967e891c75e7cea
+      size: 18989
     outs:
     - path: data/benchmarks/
       hash: md5
-      md5: bed965b0a6303ecbcdf600ed09a2080b.dir
-      size: 4084
+      md5: 4325290518aabd8332cfe038ee65c32e.dir
+      size: 3656
       nfiles: 1
   transcript_chunking:
-    cmd: python chunk_transcripts.py
+    cmd: HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.chunk_transcripts
     deps:
-    - path: chunk_transcripts.py
-      hash: md5
-      md5: 7398c48c503480af265a44b062a467e8
-      size: 16270
-    - path: common.py
-      hash: md5
-      md5: c0e5f3e4343c1076c6064d9967d7b726
-      size: 52016
     - path: input/transcribe_data/
       hash: md5
       md5: ea258148e030a031b05fdff0e32d3258.dir
@@ -69,6 +64,14 @@ stages:
       hash: md5
       md5: b25f95ee66d007f6845c898c95051627
       size: 5960
+    - path: src/mcqgen/chunk_transcripts.py
+      hash: md5
+      md5: d7b5811866655d38ee85dfa69008c2ef
+      size: 16215
+    - path: src/mcqgen/common.py
+      hash: md5
+      md5: 7d547615b42f13c4598e95672a674ace
+      size: 53272
     outs:
     - path: data/processed/transcript_chunks_with_timestamps.jsonl
       hash: md5

@@ -1,6 +1,6 @@
 stages:
   transcript_chunking:
-    cmd: python -m src.mcqgen.chunk_transcripts
+    cmd: HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.chunk_transcripts
     deps:
       - src/mcqgen/chunk_transcripts.py
       - src/mcqgen/common.py
@@ -10,7 +10,7 @@ stages:
       - data/processed/transcript_chunks_with_timestamps.jsonl
 
   indexing:
-    cmd: python -m src.mcqgen.indexing
+    cmd: HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m src.mcqgen.indexing
     deps:
       - src/mcqgen/indexing.py
       - src/mcqgen/common.py
@@ -21,7 +21,7 @@ stages:
       - data/indexes/
 
   benchmark_rag:
-    cmd: mkdir -p data/benchmarks && python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
+    cmd: mkdir -p data/benchmarks .dvc-tmp && rm -rf .dvc-tmp/indexes && cp -R data/indexes .dvc-tmp/indexes && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 INDEX_DIR=.dvc-tmp/indexes VLLM_URL=http://localhost:7681/v1 python -m src.mcqgen.advanced_retrieval adaptive > data/benchmarks/rag_benchmark.log 2>&1
     deps:
       - src/mcqgen/advanced_retrieval.py
       - data/indexes/

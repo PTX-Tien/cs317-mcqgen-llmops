@@ -1,7 +1,7 @@
 # CS317 — MCQGen: Hệ Thống Sinh Đề Thi MCQ Tự Động với LLMOps
 
 > **Đồ án môn CS317 — Nhóm 3 | ĐH Công nghệ Thông tin, ĐHQG TP.HCM**  
-> Hệ thống sinh câu hỏi trắc nghiệm từ slide PDF và transcript bài giảng, kết hợp RAG, prompt engineering, vLLM serving và Langfuse tracing.
+> Hệ thống sinh câu hỏi trắc nghiệm từ slide PDF và transcript bài giảng, kết hợp RAG, prompt engineering và vLLM serving.
 
 [![Python](https://img.shields.io/badge/Python-3.10-blue)](https://python.org)
 [![vLLM](https://img.shields.io/badge/vLLM-0.8.5-green)](https://vllm.ai)
@@ -23,8 +23,6 @@
 - [Cài đặt](#-cài-đặt)
 - [Khởi động & dừng hệ thống](#-khởi-động--dừng-hệ-thống)
 - [Hướng dẫn sử dụng](docs/huong-dan-su-dung.md)
-- [DVC Pipeline](#-dvc-pipeline)
-- [Triển khai Docker](#-triển-khai-docker)
 - [Troubleshooting](#-troubleshooting)
 - [Release History](#-release-history)
 - [Nhóm thực hiện](#-nhóm-thực-hiện)
@@ -41,86 +39,95 @@ Hệ thống nhận đầu vào là slide PDF và transcript bài giảng (Whisp
 - DVC quản lý pipeline dữ liệu.
 - vLLM host model local.
 - FastAPI + Celery + Redis xử lý request bất đồng bộ.
-- Langfuse theo dõi trace, session, user, score và latency.
-- Docker hỗ trợ triển khai local/container.
 
 ---
 
 ## 🧪 Practical Extension for Lab
 
-So với project mang tính lý thuyết, phiên bản dùng cho bài thực hành của nhóm bổ sung rõ các thành phần vận hành LLMOps sau:
+So với project ban đầu, phiên bản dùng cho bài thực hành nhấn mạnh các thành phần vận hành **LLMOps** thay vì chỉ dừng ở việc gọi LLM để sinh câu hỏi. Các phần mở rộng chính gồm:
 
-- DVC data pipeline cho xử lý slide/transcript và tái tạo dữ liệu.
-- Xây dựng RAG index với ChromaDB để phục vụ truy hồi ngữ cảnh.
-- Local LLM serving bằng vLLM để tận dụng tài nguyên GPU trên máy của nhóm.
-- Tầng phục vụ bất đồng bộ với FastAPI / Celery / Redis.
-- Langfuse tracing cho session, user, latency, token usage, accepted/rejected scores và theo dõi từng pipeline stage.
-- Kiểm thử, CI và triển khai bằng Docker / Docker Compose.
+- **Data pipeline có thể tái lập**: DVC xử lý slide/transcript, sinh chunk, build vector index và benchmark retrieval.
+- **RAG optimization**: hỗ trợ adaptive retrieval với naive retrieval, HyDE, sentence-window collection và cross-encoder rerank.
+- **Prompt optimization**: quản lý prompt theo version, bổ sung style bank từ đề CS116 thật, guardrail cho opening style và misconception-guided distractor.
+- **Serving/runtime optimization**: phục vụ Qwen2.5-7B-Instruct bằng vLLM local, tận dụng batching, prefix caching, async pipeline và dynamic concurrency.
+- **System optimization**: FastAPI + Celery + Redis cho xử lý bất đồng bộ, Redis cache cho request trùng và dedup câu hỏi theo lịch sử.
 
 **Lưu ý quan trọng:**
 
-- Nhóm **không fine-tune model**.
-- Nhóm tối ưu hệ thống chủ yếu bằng **RAG, prompt engineering, serving runtime và observability**.
-- **Langfuse là kênh monitoring/tracing chính** cho quá trình sinh đề và đánh giá pipeline.
+- Nhóm **không fine-tune / quantize / optimize trọng số** của Qwen2.5-7B-Instruct.
+- Phần "model optimization" trong project này được hiểu theo đúng bối cảnh **LLMOps**: tối ưu retrieval, prompt, runtime serving, cache và concurrency.
+- Các kết quả đo phụ thuộc GPU, version vLLM và workload. Những mục chưa đo đầy đủ được ghi rõ trong báo cáo, đặc biệt là so sánh prompt v1/v2 và prefix-cache ablation.
 
-### Báo cáo liên quan tới bài thực hành
+### Báo cáo liên quan tới bài thực hành 1
 
-Phần này dành riêng cho các nội dung bổ sung phục vụ học phần thực hành MLOps/LLMOps.
+Toàn bộ báo cáo và hình minh họa của bài thực hành 1 được gom trong:
+
+- `reports/thuc-hanh-1/`
+- `figure/thuc-hanh-1/`
+- `figure/chung/` cho tài sản dùng chung giữa các bài
 
 Các báo cáo hiện có:
 
-- [Báo cáo Data Pipeline](reports/data_pipeline_report.md): mô tả quá trình xử lý slide/transcript, chunking, embedding, xây dựng ChromaDB index và các metric cần ghi nhận cho pipeline dữ liệu.
+- [Báo cáo Data Pipeline](reports/thuc-hanh-1/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
+- [Báo cáo Data Validation](reports/thuc-hanh-1/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
+- [Báo cáo Evaluation](reports/thuc-hanh-1/eval_results.md): tổng hợp run sinh đề gần nhất, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
+- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): hướng dẫn chạy `pytest`, test API opt-in, kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/thuc-hanh-1/api.jpg`.
+- [Báo cáo Monitoring & Evaluation với Langfuse](reports/thuc-hanh-1/langfuse_monitoring_evaluation_report.md): hướng dẫn tracing session/user/pipeline stage, latency, token usage và accepted/rejected score.
+- [Báo cáo Optimization Strategy trực quan](reports/thuc-hanh-1/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
 ---
 
 ## 🏆 Kết quả nổi bật
 
-| Metric                       | Kết quả                                                  |
-| ---------------------------- | -------------------------------------------------------- |
-| Thời gian sinh 1 MCQ         | ~2-3 phút (giảm từ ~60 phút thủ công, cải thiện **20×**) |
-| Quality score trung bình     | **1.00 / 1.00**                                          |
-| RAG improvement (trung bình) | +46% so với naive retrieval                              |
-| Latency P50 / P99            | 45.1s / 2m 3s                                            |
+| Hạng mục                 | Kết quả / ghi nhận hiện tại                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data validation          | **PASS có cảnh báo**: 0 error, 2 warning; 79 transcript JSON, 11 slide PDF; 924 transcript chunks và 1220 concept chunks.                                  |
+| Evaluation run gần nhất  | 4 câu được yêu cầu, 3 câu accepted, 1 câu rejected/failed → **acceptance rate 75.0%**.                                                                     |
+| Duplicate trong accepted | 0 câu trùng theo stem trong 3 câu accepted → dedup theo lịch sử hoạt động tốt ở run này.                                                                   |
+| Adaptive RAG             | Benchmark cho thấy adaptive retrieval không kém naive trên 4 topic thử nghiệm, trung bình Δ ≈ **+0.034**; HyDE chỉ được kích hoạt khi naive retrieval yếu. |
+| vLLM serving             | Throughput tăng khoảng **3.85×** từ concurrency 1 → 4, trong khi latency P50 gần như giữ quanh ~5.7s.                                                      |
+| Async pipeline           | Pipeline async nhanh hơn sequential khoảng **2.08×** ở phần generation-only trong thử nghiệm nhỏ.                                                          |
+| Observability            | Langfuse ghi nhận input/output từng prompt stage, latency, token usage, accepted/failed counts, acceptance rate và `reject_stage.<stage>`.                 |
 
 ---
 
 ## 🏗️ Kiến trúc hệ thống
 
-![Kiến trúc hệ thống](figure/architecture-summary.svg)
+![Kiến trúc hệ thống](figure/chung/architecture-summary.svg)
 
 Tóm tắt:
 
 - Next.js: login, dashboard, generate, history, quiz.
 - FastAPI: auth, generate, status, results, PDF export.
-- Celery + Redis: async queue và progress tracking.
-- RAG pipeline: slide PDF + transcript → clean/chunk/index → ChromaDB.
-- vLLM: host Qwen2.5-7B-Instruct local.
-- Langfuse: trace session, user, prompt stage, score, token usage.
+- Celery + Redis: async queue, progress tracking, cache và load tracking.
+- RAG pipeline: slide PDF + transcript → clean/chunk/index → ChromaDB → adaptive retrieval/rerank.
+- vLLM: host Qwen2.5-7B-Instruct local qua OpenAI-compatible API.
+- Langfuse: trace session, user, prompt stage, input/output, latency, token usage, score và reject stage.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer                  | Công nghệ                             | Phiên bản |
-| ---------------------- | ------------------------------------- | --------- |
-| Frontend               | Next.js + TypeScript + Tailwind CSS   | 16.x      |
-| UI Components          | shadcn/ui                             | latest    |
-| State Management       | Zustand                               | 5.0.12    |
-| Backend API            | FastAPI                               | 0.136     |
-| Authentication         | JWT (python-jose)                     | 3.3.0     |
-| Task Queue             | Celery + Redis                        | 5.x       |
-| LLM Serving            | vLLM                                  | 0.8.5     |
-| LLM Model              | Qwen2.5-7B-Instruct                   | —         |
-| RAG Strategy           | HyDE + Sentence-Window + CrossEncoder | custom    |
-| Embedding Model        | BAAI/bge-m3                           | —         |
-| Vector Database        | ChromaDB                              | 1.5.x     |
-| Data Versioning        | DVC                                   | —         |
-| LLM Observability      | Langfuse (self-hosted)                | —         |
-| Relational DB          | SQLite (sqlmodel)                     | —         |
-| Structured Logging     | structlog (JSON)                      | 24.x      |
-| PDF Export             | ReportLab                             | —         |
-| CI/CD                  | GitHub Actions                        | —         |
-| Containerization       | Docker + Docker Compose v2            | —         |
+| Layer              | Công nghệ                             | Phiên bản |
+| ------------------ | ------------------------------------- | --------- |
+| Frontend           | Next.js + TypeScript + Tailwind CSS   | 16.x      |
+| UI Components      | shadcn/ui                             | latest    |
+| State Management   | Zustand                               | 5.0.12    |
+| Backend API        | FastAPI                               | 0.136     |
+| Authentication     | JWT (python-jose)                     | 3.3.0     |
+| Task Queue         | Celery + Redis                        | 5.x       |
+| LLM Serving        | vLLM                                  | 0.8.5     |
+| LLM Model          | Qwen2.5-7B-Instruct                   | —         |
+| RAG Strategy       | HyDE + Sentence-Window + CrossEncoder | custom    |
+| Embedding Model    | BAAI/bge-m3                           | —         |
+| Vector Database    | ChromaDB                              | 1.5.x     |
+| Data Versioning    | DVC                                   | —         |
+| LLM Observability  | Langfuse (self-hosted)                | —         |
+| Relational DB      | SQLite (sqlmodel)                     | —         |
+| Structured Logging | structlog (JSON)                      | 24.x      |
+| PDF Export         | ReportLab                             | —         |
+| CI/CD              | GitHub Actions                        | —         |
+| Containerization   | Docker + Docker Compose v2            | —         |
 
 ---
 
@@ -162,6 +169,11 @@ conda install -c conda-forge nodejs=20 -y
 
 Xem file mẫu tại [`.env.example`](.env.example).  
 Người dùng chỉ cần copy file này thành `.env` rồi chỉnh theo máy của mình.
+Các file local như `.env.local` và `webapp/.env.local` không cần commit lên Git.
+
+```bash
+cp .env.example .env
+```
 
 ### Bước 4 — Cài Python dependencies
 
@@ -172,7 +184,7 @@ pip install -r requirements_api.txt
 ### Bước 5 — Download model Qwen2.5-7B-Instruct (~15GB)
 
 ```bash
-export HF_HOME=/path/to/storage/.cache/huggingface
+export HF_HOME=${HF_HOME:-$PWD/.cache/huggingface}
 mkdir -p models
 
 python -c "
@@ -188,7 +200,7 @@ print('Done!')
 
 ### Bước 6 — Chuẩn bị dữ liệu đầu vào
 
-Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](<THÊM_LINK_GOOGLE_DRIVE_CỦA_NHÓM_VÀO_ĐÂY>)**
+Tải bộ dữ liệu gốc của nhóm tại: **[Google Drive dữ liệu đầu vào](https://drive.google.com/file/d/1mF3OKMXRIcLsFBe4KZZvoSbcKkD9buBl/view?usp=sharing)**
 
 Sau khi tải về, đặt file vào đúng cấu trúc:
 
@@ -202,6 +214,12 @@ input/
 │   ├── 1.1.json
 │   └── ...
 └── videos1.txt               # YouTube URL mapping
+```
+
+Nếu muốn kiểm tra nhanh dữ liệu đầu vào trước khi chạy DVC:
+
+```bash
+python scripts/validate_data_pipeline.py --no-report
 ```
 
 ### Bước 7 — Build vector index (chạy 1 lần)
@@ -219,7 +237,16 @@ python -m src.mcqgen.indexing
 python src/gen/sentence_window_indexing.py
 ```
 
+Kiểm tra trạng thái sau khi build xong:
+
+```bash
+dvc status
+python scripts/validate_data_pipeline.py
+```
+
 ### Bước 8 — Cài đặt Next.js frontend
+
+Chỉ cần bước này nếu bạn muốn build/run frontend riêng, không dùng `scripts/start_system.sh`.
 
 ```bash
 cd webapp
@@ -239,13 +266,19 @@ conda activate mcqgen_v2
 bash scripts/start_system.sh
 ```
 
+Mặc định script sẽ đọc `.env`, khởi động Redis, FastAPI, Celery, Next.js, vLLM và Langfuse. Khi chỉ sửa UI/API hoặc chưa cần GPU:
+
+```bash
+bash scripts/start_system.sh --no-vllm --no-langfuse
+```
+
 Sau khi hệ thống lên, các URL chính:
 
-| Service          | URL                          |
-| ---------------- | ---------------------------- |
-| Web UI           | `http://SERVER_IP:8081`      |
-| API Docs         | `http://SERVER_IP:8080/docs` |
-| Langfuse         | `http://SERVER_IP:8083`      |
+| Service  | URL                          |
+| -------- | ---------------------------- |
+| Web UI   | `http://SERVER_IP:8081`      |
+| API Docs | `http://SERVER_IP:8080/docs` |
+| Langfuse | `http://SERVER_IP:8083`      |
 
 ### Dừng hệ thống
 
@@ -260,51 +293,6 @@ bash scripts/stop_system.sh
 Chi tiết được tách sang file riêng:
 
 - [docs/huong-dan-su-dung.md](docs/huong-dan-su-dung.md)
-
----
-
-## 🔄 DVC Pipeline
-
-Pipeline gồm 3 stages:
-
-```text
-transcript_chunking → indexing → benchmark_rag
-```
-
-Lệnh thường dùng:
-
-```bash
-dvc dag
-dvc repro
-dvc status
-```
-
-Khi thêm dữ liệu mới:
-
-```bash
-cp new_slide.pdf input/slide/
-cp new_transcript.json input/transcribe_data/
-dvc repro
-git add .
-git commit -m "data: add new chapter"
-```
-
----
-
-## 🐳 Triển khai Docker
-
-### Build image
-
-```bash
-docker build -t mcqgen-api:v1.0 .
-```
-
-### Chạy với docker-compose
-
-```bash
-docker-compose up -d
-docker-compose -f docker-compose.scalable.yml up -d
-```
 
 ---
 
@@ -334,23 +322,33 @@ dvc repro
 **Next.js không kết nối được API**
 
 ```bash
-cat webapp/.env.local
-curl http://SERVER_IP:8081/health
+bash scripts/start_system.sh --no-vllm --no-langfuse
+curl http://SERVER_IP:8081/api/health
 ```
+
+**Redis không bind được port 6379**
+
+```bash
+tail -50 logs/redis.log
+REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm --no-langfuse
+```
+
+Nếu log có `Could not create server TCP listening socket`, hãy kiểm tra port đang bị chiếm hoặc bị giới hạn bởi môi trường chạy. Script sẽ dừng sau `REDIS_WAIT_SECONDS` thay vì chờ vô hạn.
 
 ---
 
 ## 🔖 Release History
 
-| Tag           | Nội dung                                           |
-| ------------- | -------------------------------------------------- |
-| `data-v1.0`   | DVC tracking — slides, transcripts, index         |
-| `prompt-v1.0` | Prompt versioning v1 (P1–P8)                      |
-| `v1.1`        | Full DVC pipeline + Adaptive RAG + FastAPI + Celery |
-| `v1.8`        | Queue position display + `/queue/status` endpoint |
-| `v1.9`        | Langfuse tracing                                  |
-| `v2.0`        | JWT auth + Rate limiting + SQLite + structlog    |
-| `v2.1`        | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin) |
+| Tag           | Nội dung                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| `data-v1.0`   | DVC tracking — slides, transcripts, index                                                     |
+| `prompt-v1.0` | Prompt versioning v1 (P1–P8)                                                                  |
+| `v1.1`        | Full DVC pipeline + Adaptive RAG + FastAPI + Celery                                           |
+| `v1.8`        | Queue position display + `/queue/status` endpoint                                             |
+| `v1.9`        | Langfuse tracing                                                                              |
+| `v2.0`        | JWT auth + Rate limiting + SQLite + structlog                                                 |
+| `v2.1`        | Next.js 16 UI (Login, Dashboard, Generate, History, Quiz, Admin)                              |
+| `v2.2`        | README cập nhật báo cáo validation/evaluation/optimization + minh họa Langfuse prompt tracing |
 
 ---
 

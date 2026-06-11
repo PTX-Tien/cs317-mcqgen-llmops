@@ -5,13 +5,20 @@ Mục đích: validate Qwen2.5-7B-Instruct sinh MCQ tiếng Việt đạt chất
 Chạy: python test_mcq_single.py
 """
 
+import os
+import sys
+
+if "pytest" in sys.modules and os.getenv("RUN_LLM_SMOKE_TESTS") != "1":
+    import pytest
+    pytest.skip("LLM smoke test; set RUN_LLM_SMOKE_TESTS=1 to run", allow_module_level=True)
+
 import json
 import time
 from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────
-VLLM_BASE_URL = "http://localhost:8000/v1"
-MODEL_NAME    = "mcqgen"
+VLLM_BASE_URL = os.getenv("VLLM_URL", "http://localhost:7681/v1")
+MODEL_NAME    = os.getenv("VLLM_MODEL", "mcqgen")
 
 # Dùng 1 context block thực từ data của bạn (copy từ concept_chunks.jsonl)
 # Hoặc để mặc định để test nhanh
