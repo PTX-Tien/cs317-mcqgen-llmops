@@ -1,10 +1,10 @@
 services:
-
   redis:
     image: redis:7-alpine
+    container_name: mcqgen-redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -12,57 +12,121 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - mcqgen-network
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: mcqgen-chromadb
+    restart: unless-stopped
+    ports:
+      - "${CHROMA_PORT:-8000}:8000"
+    volumes:
+      - ./data/indexes:/chroma/chroma
+    networks:
+      - mcqgen-network
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: mcqgen-langfuse
+    restart: unless-stopped
+    ports:
+      - "${LANGFUSE_PORT:-8083}:3000"
+    environment:
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=mcqgen-langfuse-secret-key-2026
+      - SALT=mcqgen-salt-value
+      - DB_PROVIDER=sqlite
+      - DB_SQLITE_PATH=/home/nextuser/langfuse.db
+    volumes:
+      - langfuse_data:/home/nextuser
+    networks:
+      - mcqgen-network
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: mcqgen-vllm
+    restart: unless-stopped
+    ports:
+      - "${VLLM_PORT:-7681}:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
+    networks:
+      - mcqgen-network
 
   api:
     image: mcqgen-api:v1.0
+    container_name: mcqgen-api
     restart: unless-stopped
     ports:
-      - "7860:7860"
+      - "${API_PORT:-8080}:7860"
+    env_file:
+      - .env
     environment:
-      - VLLM_URL=http://host.docker.internal:7681/v1
-      - VLLM_MODEL=mcqgen
-      - CELERY_BROKER=redis://redis:6379/0
-      - CELERY_BACKEND=redis://redis:6379/1
-      - REDIS_CACHE_URL=redis://redis:6379/2
-      - REDIS_SESSION_URL=redis://redis:6379/3
-      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
-      - CELERY_QUEUE_ISOLATE_BY_USER=0
-      - CELERY_QUEUE_HIGH=mcq.high
-      - CELERY_QUEUE_LOW=mcq.low
+      - CHROMA_SERVER_HOST=chromadb
+      - VLLM_URL=http://vllm:8000/v1
     depends_on:
       redis:
         condition: service_healthy
+      chromadb:
+        condition: service_started
     command: uvicorn api.main:app --host 0.0.0.0 --port 7860
     volumes:
       - ./data:/app/data
       - ./input:/app/input
       - ./output:/app/output
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - mcqgen-network
 
   worker:
     image: mcqgen-api:v1.0
+    container_name: mcqgen-worker
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      - VLLM_URL=http://host.docker.internal:7681/v1
-      - VLLM_MODEL=mcqgen
-      - CELERY_BROKER=redis://redis:6379/0
-      - CELERY_BACKEND=redis://redis:6379/1
-      - REDIS_CACHE_URL=redis://redis:6379/2
-      - REDIS_SESSION_URL=redis://redis:6379/3
-      - DATABASE_URL=sqlite:////app/data/mcqgen.db?timeout=30
-      - CELERY_QUEUE_ISOLATE_BY_USER=0
-      - CELERY_QUEUE_HIGH=mcq.high
-      - CELERY_QUEUE_LOW=mcq.low
+      - CHROMA_SERVER_HOST=chromadb
+      - VLLM_URL=http://vllm:8000/v1
     depends_on:
       redis:
         condition: service_healthy
+      chromadb:
+        condition: service_started
     command: celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
     volumes:
       - ./data:/app/data
       - ./input:/app/input
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./output:/app/output
+    networks:
+      - mcqgen-network
+
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: mcqgen-webapp
+    restart: unless-stopped
+    ports:
+      - "${WEBAPP_PORT:-8081}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${API_PORT:-8080}
+    depends_on:
+      - api
+    networks:
+      - mcqgen-network
+
+networks:
+  mcqgen-network:
+    driver: bridge
 
 volumes:
   redis_data:
+  langfuse_data:

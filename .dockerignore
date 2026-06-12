@@ -1,39 +1,53 @@
+# ── HỆ THỐNG VÀ PHIÊN BẢN (Git / DVC) ─────────────────────────────────────────
 .git
+.gitignore
+.dvc
+.dvcignore
 .dvc-site-cache
 .dvc-tmp
-.cache
-__pycache__
-*.pyc
 
-# Local secrets/config
+# ── THƯ MỤC CONFIG VÀ BẢO MẬT (Không mang vào image) ──────────────────────────
 .env
 .env.local
 **/.env.local
+.env.*
 monitoring/langfuse/.env
 
-# Runtime outputs
+# ── CACHE VÀ PYTHON RUNTIME (Giảm dung lượng build backend) ────────────────────
+.cache
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+env
+
+# ── LOGS VÀ THƯ MỤC TẠM (Runtime Outputs) ────────────────────────────────────
 logs
 redis_data
 tmp
-output
 results
-
-# Large data and model artifacts are mounted or restored separately.
-data/indexes
-data/processed
-data/*.db
-data/*.db-shm
-data/*.db-wal
-input/slide
-input/transcribe_data
-models
-
-# Frontend build/runtime cache
-webapp/node_modules
-webapp/.next
-webapp/tsconfig.tsbuildinfo
-
-# Local helper artifacts
 *.log
 *.tmp
 .nfs*
+
+# ── THƯ MỤC FRONTEND BUILD CACHE (Giảm dung lượng build Next.js) ───────────────
+webapp/node_modules
+webapp/.next
+webapp/out
+webapp/tsconfig.tsbuildinfo
+webapp/.docusaurus
+
+# ── DATA ARTIFACTS (Chỉ mang file mẫu, không mang dữ liệu nặng) ──────────────
+# Giữ cấu trúc thư mục rỗng để container mount volume thành công, bỏ qua ruột
+data/indexes/*
+data/processed/*
+data/*.db
+data/*.db-shm
+data/*.db-wal
+input/slide/*
+input/transcribe_data/*
+output/*
+models/*
