@@ -34,7 +34,7 @@ Cách đọc hình:
 
 Pipeline trong `src/mcqgen/advanced_retrieval.py` không dùng một chiến lược retrieve cố định. Hệ thống trước hết chạy naive retrieval để lấy điểm similarity ban đầu. Nếu naive đã đủ tốt, pipeline giữ `naive+rerank` để tiết kiệm chi phí. Nếu naive yếu, pipeline kích hoạt **HyDE** để sinh câu hỏi giả định, trộn embedding theo tỉ lệ `0.6*topic + 0.4*hypo`, sau đó retrieve lại và rerank bằng cross-encoder.
 
-Kết quả trong dashboard cho thấy adaptive retrieval **không làm kém hơn naive** trên các topic đã thử. Với các topic naive yếu như *Missing Data* và *CNN Neural Networks*, HyDE giúp cải thiện similarity rõ ràng. Với các topic naive đã ổn như *Decision Trees* và *Outlier Detection*, hệ thống không tốn thêm lượt HyDE mà giữ chiến lược tiết kiệm hơn.
+Kết quả trong dashboard cho thấy adaptive retrieval **không làm kém hơn naive** trên các topic đã thử. Với các topic naive yếu như _Missing Data_ và _CNN Neural Networks_, HyDE giúp cải thiện similarity rõ ràng. Với các topic naive đã ổn như _Decision Trees_ và _Outlier Detection_, hệ thống không tốn thêm lượt HyDE mà giữ chiến lược tiết kiệm hơn.
 
 **Như thế nào là tốt?**  
 Tốt là khi adaptive retrieval tăng hoặc ít nhất giữ nguyên similarity so với naive, đồng thời chỉ bật HyDE khi thật sự cần. Điều này chứng minh pipeline có tính “adaptive”, không phải lúc nào cũng gọi thêm LLM.
@@ -113,27 +113,7 @@ Cách viết đúng trong báo cáo:
 
 > Hệ thống đã bật prefix caching trong cấu hình vLLM. Tuy nhiên, benchmark hiện tại chưa đủ để kết luận lợi ích của prefix caching vì chưa có so sánh ON/OFF độc lập và hit rate của lần đo này bằng 0.0. Đây là mục cần đo lại nếu muốn claim chính thức.
 
-## 4. Những claim nên dùng và không nên dùng
-
-### Nên claim
-
-- Hệ thống tối ưu theo hướng LLMOps, không fine-tune model.
-- Adaptive RAG giúp cải thiện retrieval khi naive retrieval yếu và không làm kém hơn naive trong benchmark nhỏ.
-- vLLM batching giúp throughput tăng rõ từ concurrency 1 đến 4.
-- Concurrency 4 là điểm cân bằng tốt hơn concurrency 8 trong cấu hình hiện tại vì concurrency 8 bắt đầu bão hòa latency.
-- Async pipeline giảm generation wall time khoảng 2.08× trong benchmark nhỏ.
-- Langfuse giúp trace input/output từng prompt layer, từ đó biết MCQ bị failed/accepted ở stage nào.
-- Redis cache và dedup là các tối ưu hệ thống giúp tránh chạy lại request trùng và giảm câu hỏi lặp.
-
-### Không nên claim
-
-- Không claim đã fine-tune, quantize hoặc optimize trọng số Qwen2.5-7B-Instruct.
-- Không claim đã cloud deploy nếu hệ thống chỉ chạy local/server lab.
-- Không claim sentence-window đang là kết quả chính nếu collection sentence-window chưa build đầy đủ và còn fallback.
-- Không claim prefix caching đã chứng minh hiệu quả nếu chưa có ablation ON/OFF.
-- Không claim prompt v2 tốt hơn v1 bằng phần trăm cụ thể nếu chưa generate đủ run đối chứng.
-
-## 5. Cách tái lập số liệu
+## 4. Cách tái lập số liệu
 
 Các lệnh chính để chạy lại benchmark và sinh số liệu:
 
@@ -158,7 +138,3 @@ python vllm/exp05_prefix_cache_ablation.py --concurrency 4 --num-requests 40 --p
 # Evaluation report sau khi generate đề
 python scripts/eval_report.py --latest
 ```
-
-## 6. Kết luận ngắn cho người chấm
-
-Điểm chính của optimization trong MCQGen là nhóm không cố “train model”, mà tối ưu toàn bộ vòng đời vận hành LLM: context được retrieve tốt hơn, prompt được trace và sửa theo evidence, serving dùng vLLM để tăng throughput, pipeline async để giảm thời gian, còn Langfuse/Redis/Celery giúp quan sát và kiểm soát lỗi ở từng stage. Dashboard trực quan cho thấy các kết quả đã đo được, đồng thời cũng chỉ rõ những mục cần nói thận trọng để báo cáo không claim quá mức.
