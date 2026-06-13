@@ -180,7 +180,7 @@ def init_db():
 def _ensure_admin_account():
     """Tạo admin account nếu chưa có — chạy mỗi lần startup."""
     from passlib.context import CryptContext
-    _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _pwd = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
     admin_username = os.getenv("ADMIN_USERNAME", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin2026")

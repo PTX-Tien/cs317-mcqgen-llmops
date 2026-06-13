@@ -28,7 +28,7 @@ const browserBackendUrl = (kind: "http" | "ws") => {
 
 function resolveApiUrl() {
   const configured = normalizeUrl(process.env.NEXT_PUBLIC_API_URL);
-  return configured || browserBackendUrl("http") || "http://localhost:8080";
+  return configured || browserBackendUrl("http") || "/api";
 }
 
 function resolveWsUrl() {

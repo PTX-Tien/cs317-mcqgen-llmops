@@ -23,6 +23,9 @@ services:
 
   # ── FastAPI — Có thể scale với: --scale api=N ─────────────────────────────
   api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     image: mcqgen-api:v1.0
     restart: unless-stopped
     expose:
@@ -30,8 +33,17 @@ services:
     env_file:
       - .env # Đọc cấu hình tập trung từ file .env
     environment:
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
       - CHROMA_SERVER_HOST=chromadb
       - VLLM_URL=http://vllm:8000/v1 # Kết nối nội bộ trực tiếp đến vLLM
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+      - LANGFUSE_HOST=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
@@ -53,13 +65,25 @@ services:
 
   # ── Celery High-Priority Worker (Sinh câu hỏi MCQ) ────────────────────────
   worker:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     image: mcqgen-api:v1.0
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
       - CHROMA_SERVER_HOST=chromadb
       - VLLM_URL=http://vllm:8000/v1
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+      - LANGFUSE_HOST=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
@@ -69,7 +93,7 @@ services:
       celery -A api.tasks worker
         --loglevel=info
         --concurrency=1
-        --queues=mcq.high,celery
+        --queues=${CELERY_QUEUE_HIGH:-mcq.mcqgen.high},celery
         --hostname=worker-high@%h
         --max-tasks-per-child=10
     volumes:
@@ -81,13 +105,25 @@ services:
 
   # ── Celery Low-Priority Worker (Tác vụ nền, warmup) ───────────────────────
   worker-low:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     image: mcqgen-api:v1.0
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      - REDIS_BASE_URL=redis://redis:6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/1
+      - REDIS_CACHE_URL=redis://redis:6379/2
+      - REDIS_SESSION_URL=redis://redis:6379/3
       - CHROMA_SERVER_HOST=chromadb
       - VLLM_URL=http://vllm:8000/v1
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+      - LANGFUSE_HOST=${LANGFUSE_BASE_URL:-http://host.docker.internal:${LANGFUSE_PORT:-8083}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
@@ -97,7 +133,7 @@ services:
       celery -A api.tasks worker
         --loglevel=info
         --concurrency=2
-        --queues=mcq.low
+        --queues=${CELERY_QUEUE_LOW:-mcq.mcqgen.low}
         --hostname=worker-low@%h
         --max-tasks-per-child=20
     volumes:
@@ -124,42 +160,32 @@ services:
     networks:
       - mcqgen-scalable-network
 
-  # ── Langfuse (Giám sát tracing LLMOps pipeline) ─────────────────────────────
-  langfuse:
-    image: langfuse/langfuse:2
-    container_name: mcqgen-langfuse-scalable
-    restart: unless-stopped
-    ports:
-      - "${LANGFUSE_PORT:-8083}:3000"
-    environment:
-      - NEXTAUTH_URL=http://localhost:3000
-      - NEXTAUTH_SECRET=mcqgen-langfuse-scalable-secret-2026
-      - SALT=mcqgen-scalable-salt
-      - DB_PROVIDER=sqlite
-      - DB_SQLITE_PATH=/home/nextuser/langfuse.db
-    volumes:
-      - langfuse_data:/home/nextuser
-    networks:
-      - mcqgen-scalable-network
-
   # ── vLLM Serving Engine (Phục vụ Qwen Model qua GPU) ───────────────────────
   vllm:
-    image: vllm/vllm-openai:latest
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.5.4}
     container_name: mcqgen-vllm-scalable
     restart: unless-stopped
+    ipc: host
     ports:
       - "${VLLM_PORT:-7681}:8000"
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface # Mount cache tránh tải lại weights
-    deploy:
-      resources:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: all
-                capabilities: [gpu] # Đăng ký sử dụng GPU của Server Lab
-    command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${VLLM_GPU_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-1}
+      - NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-1}
+      - NCCL_DEBUG=${NCCL_DEBUG:-WARN}
+    command: >
+      --model ${VLLM_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+      --served-model-name ${VLLM_MODEL:-mcqgen}
+      --host 0.0.0.0
+      --port 8000
+      --tensor-parallel-size ${VLLM_TENSOR_PARALLEL_SIZE:-1}
+      --disable-custom-all-reduce
+      --dtype ${VLLM_DTYPE:-half}
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-5000}
+      --max-num-seqs ${VLLM_MAX_NUM_SEQS:-4}
     networks:
       - mcqgen-scalable-network
 
@@ -168,12 +194,16 @@ services:
     build:
       context: ./webapp
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_API_BACKEND: http://nginx:80
     container_name: mcqgen-webapp-scalable
     restart: unless-stopped
     ports:
       - "${WEBAPP_PORT:-8081}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:80 # Trình duyệt client gọi API thông qua cổng 80 của Nginx Gateway
+      - NEXT_PUBLIC_API_URL=/api
+      - NEXT_PUBLIC_API_BACKEND=http://nginx:80
     depends_on:
       - nginx
     networks:
@@ -204,7 +234,6 @@ services:
 volumes:
   app_data: # Chia sẻ SQLite db giữa các bản sao của api và worker
   redis_data:
-  langfuse_data:
 
 networks:
   mcqgen-scalable-network:

@@ -269,7 +269,15 @@ bash scripts/start_system.sh
 Mặc định script sẽ đọc `.env`, khởi động Redis, FastAPI, Celery, Next.js, vLLM và Langfuse. Khi chỉ sửa UI/API hoặc chưa cần GPU:
 
 ```bash
-bash scripts/start_system.sh --no-vllm --no-langfuse
+bash scripts/start_system.sh --no-vllm
+```
+
+Nếu server có nhiều GPU, có thể chọn GPU cho vLLM ngay lúc chạy. Script sẽ tự truyền cấu hình này vào Docker và tự suy ra `VLLM_TENSOR_PARALLEL_SIZE` theo số GPU được chọn:
+
+```bash
+CUDA_VISIBLE_DEVICES=2,3,5,6 bash scripts/start_system.sh --with-vllm
+CUDA_VISIBLE_DEVICES=1,2,3,4 bash scripts/start_system.sh --with-vllm
+CUDA_VISIBLE_DEVICES=2,3 bash scripts/start_system.sh --with-vllm
 ```
 
 Sau khi hệ thống lên, các URL chính:
@@ -322,7 +330,7 @@ dvc repro
 **Next.js không kết nối được API**
 
 ```bash
-bash scripts/start_system.sh --no-vllm --no-langfuse
+bash scripts/start_system.sh --no-vllm
 curl http://SERVER_IP:8081/api/health
 ```
 
@@ -330,7 +338,7 @@ curl http://SERVER_IP:8081/api/health
 
 ```bash
 tail -50 logs/redis.log
-REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm --no-langfuse
+REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm
 ```
 
 Nếu log có `Could not create server TCP listening socket`, hãy kiểm tra port đang bị chiếm hoặc bị giới hạn bởi môi trường chạy. Script sẽ dừng sau `REDIS_WAIT_SECONDS` thay vì chờ vô hạn.

@@ -14,8 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Tận dụng Docker layer cache bằng cách cài đặt dependencies trước
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements_api.txt .
+RUN pip install --no-cache-dir -r requirements_api.txt
+RUN pip install --no-cache-dir "bcrypt<5"
 
 # Copy toàn bộ mã nguồn từ thư mục api/ vào trong container
 COPY . .

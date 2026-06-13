@@ -6,7 +6,7 @@ const configuredAllowedOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const API_BACKEND = process.env.NEXT_PUBLIC_API_BACKEND ?? "http://127.0.0.1:8080";
+const API_BACKEND = process.env.NEXT_PUBLIC_API_BACKEND ?? "http://api:7860";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: Array.from(new Set(configuredAllowedOrigins)),

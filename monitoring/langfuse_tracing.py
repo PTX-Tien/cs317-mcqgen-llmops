@@ -214,7 +214,12 @@ def langfuse_attributes(
     try:
         from langfuse import propagate_attributes
 
-        with propagate_attributes(**kwargs):
+        try:
+            context = propagate_attributes(**kwargs)
+        except TypeError:
+            fallback_kwargs = {k: v for k, v in kwargs.items() if k != "trace_name"}
+            context = propagate_attributes(**fallback_kwargs)
+        with context:
             yield
     except Exception as exc:  # pragma: no cover - optional dependency path
         print(f"LangFuse attributes propagation skipped: {exc}", file=sys.stderr)
@@ -284,20 +289,30 @@ def score_langfuse_observation(
     metadata: dict[str, Any] | None = None,
 ) -> None:
     try:
-        payload = {
+        base_payload = {
             "name": name,
             "value": float(value),
             "comment": comment,
+        }
+        payload = {
+            **base_payload,
             "metadata": sanitize_for_langfuse(metadata),
             "data_type": "NUMERIC",
         }
         payload = {k: v for k, v in payload.items() if v is not None}
+        base_payload = {k: v for k, v in base_payload.items() if v is not None}
         if observation is not None and hasattr(observation, "score"):
-            observation.score(**payload)
+            try:
+                observation.score(**payload)
+            except TypeError:
+                observation.score(**base_payload)
             return
         client = init_langfuse()
         if client is not None and hasattr(client, "score_current_span"):
-            client.score_current_span(**payload)
+            try:
+                client.score_current_span(**payload)
+            except TypeError:
+                client.score_current_span(**base_payload)
     except Exception as exc:  # pragma: no cover - optional dependency path
         print(f"LangFuse observation score skipped: {exc}", file=sys.stderr)
 
