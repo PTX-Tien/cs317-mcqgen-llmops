@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
 
   # ── Nginx API Gateway (Cân bằng tải cho các API instances) ─────────────────
@@ -23,6 +21,9 @@ services:
 
   # ── FastAPI — Có thể scale với: --scale api=N ─────────────────────────────
   api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: mcqgen-api:v1.0
     restart: unless-stopped
     expose:
@@ -53,6 +54,9 @@ services:
 
   # ── Celery High-Priority Worker (Sinh câu hỏi MCQ) ────────────────────────
   worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: mcqgen-api:v1.0
     restart: unless-stopped
     env_file:
@@ -150,15 +154,14 @@ services:
     ports:
       - "${VLLM_PORT:-7681}:8000"
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface # Mount cache tránh tải lại weights
+      - hf_cache:/root/.cache/huggingface # Cache nội bộ để portable giữa các máy
     deploy:
       resources:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: all
-                capabilities: [gpu] # Đăng ký sử dụng GPU của Server Lab
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu] # Đăng ký sử dụng GPU của Server Lab
     command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
     networks:
       - mcqgen-scalable-network
@@ -168,12 +171,15 @@ services:
     build:
       context: ./webapp
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BACKEND: http://api:7860
     container_name: mcqgen-webapp-scalable
     restart: unless-stopped
     ports:
       - "${WEBAPP_PORT:-8081}:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:80 # Trình duyệt client gọi API thông qua cổng 80 của Nginx Gateway
+      - NEXT_PUBLIC_API_BACKEND=http://api:7860
     depends_on:
       - nginx
     networks:
@@ -205,6 +211,7 @@ volumes:
   app_data: # Chia sẻ SQLite db giữa các bản sao của api và worker
   redis_data:
   langfuse_data:
+  hf_cache:
 
 networks:
   mcqgen-scalable-network:

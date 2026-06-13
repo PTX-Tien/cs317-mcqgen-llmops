@@ -27,8 +27,12 @@ const browserBackendUrl = (kind: "http" | "ws") => {
 };
 
 function resolveApiUrl() {
+  if (typeof window !== "undefined") {
+    return browserBackendUrl("http") || "/api";
+  }
+
   const configured = normalizeUrl(process.env.NEXT_PUBLIC_API_URL);
-  return configured || browserBackendUrl("http") || "http://localhost:8080";
+  return configured || "http://localhost:8080";
 }
 
 function resolveWsUrl() {

@@ -40,6 +40,7 @@ Sử dụng: bash scripts/start_system.sh [Tùy chọn]
 Các tùy chọn:
   --with-vllm     Khởi động kèm container vLLM local dùng GPU
   --no-vllm       Bỏ qua vLLM container (Dùng khi gọi API ngoài hoặc test hệ thống)
+    --scalable      Dùng docker-compose.scalable.yml
   -h, --help      Hiển thị hướng dẫn này
 EOF
 }
@@ -49,15 +50,22 @@ for arg in "$@"; do
     case "$arg" in
         --with-vllm)     USE_VLLM=1 ;;
         --no-vllm)       USE_VLLM=0 ;;
+        --scalable)      SCALABLE_MODE=1 ;;
         -h|--help)       usage; exit 0 ;;
         *)               echo "[ERROR] Tùy chọn không hợp lệ: $arg"; usage; exit 2 ;;
     esac
 done
 
-COMPOSE_FILE="docker-compose.yml"
+if [ "$SCALABLE_MODE" -eq 1 ]; then
+    COMPOSE_FILE="docker-compose.scalable.yml"
+    echo "[INFO] Scalable mode enabled, building mcqgen-api:v1.0..."
+    docker build -t mcqgen-api:v1.0 .
+else
+    COMPOSE_FILE="docker-compose.yml"
+fi
 
 echo "════════════════════════════════════════════════════════"
-echo "🚀 Khởi động MCQGen System via Docker (Branch: Trang_docker)"
+echo "🚀 Khởi động MCQGen System via Docker"
 echo " Thư mục dự án: $PROJECT"
 echo " Cổng dịch vụ:  UI->$WEBAPP_PORT | API->$API_PORT | Langfuse->$LANGFUSE_PORT"
 echo "════════════════════════════════════════════════════════"
@@ -66,13 +74,13 @@ echo "[1/3] Đang kích hoạt các Docker Containers..."
 mkdir -p input output logs
 
 # Hạ container cũ tránh xung đột
-docker compose -f $COMPOSE_FILE down --remove-orphans
+docker compose -f "$COMPOSE_FILE" down --remove-orphans
 
 if [ "$USE_VLLM" -eq 1 ] && grep -q "vllm:" "$COMPOSE_FILE"; then
-    docker compose -f $COMPOSE_FILE up -d
+    docker compose -f "$COMPOSE_FILE" up -d --build
 else
     # Nếu chạy --no-vllm hoặc file compose không định nghĩa vllm, cứ khởi chạy bình thường
-    docker compose -f $COMPOSE_FILE up -d
+    docker compose -f "$COMPOSE_FILE" up -d --build
 fi
 
 if [ $? -ne 0 ]; then
@@ -88,7 +96,7 @@ IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo "════════════════════════════════════════════════════════"
 echo "📊 Trạng thái hệ thống (Docker Stack):"
-docker compose -f $COMPOSE_FILE ps
+docker compose -f "$COMPOSE_FILE" ps
 
 echo ""
 echo "🌐 Địa chỉ truy cập bài thực hành Lab:"

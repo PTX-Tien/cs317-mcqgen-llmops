@@ -3,6 +3,7 @@ chromadb==1.5.8
 fastapi==0.136.1
 fastapi-cli==0.0.24
 fastapi-cloud-cli==0.17.1
+httptools==0.7.1
 httpx==0.28.1
 httpx-sse==0.4.3
 numpy==2.2.6
@@ -27,7 +28,10 @@ reportlab==4.4.10
 scikit-learn==1.7.2
 scipy==1.15.3
 sentence-transformers
+slowapi==0.1.9
+sqlmodel==0.0.24
 tokenizers
 tqdm==4.67.3
 transformers
+uvloop==0.21.0
 uvicorn==0.46.0

@@ -1,22 +1,25 @@
-# === STAGE 1: Cài d?t dependencies và Build source code ===
+# === STAGE 1: Cï¿½i d?t dependencies vï¿½ Build source code ===
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy các file qu?n lý thu vi?n tru?c d? t?n d?ng Docker layer cache
+# Copy cï¿½c file qu?n lï¿½ thu vi?n tru?c d? t?n d?ng Docker layer cache
 COPY package*.json ./
 RUN npm ci
 
-# Copy toàn b? mã ngu?n frontend vào container
+# Copy toï¿½n b? mï¿½ ngu?n frontend vï¿½o container
 COPY . .
 
-# Khai báo d?i s? nh?n vào t? docker-compose lúc build
+# Khai bï¿½o d?i s? nh?n vï¿½o t? docker-compose lï¿½c build
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Ti?n hành build ?ng d?ng Next.js sang production
+ARG NEXT_PUBLIC_API_BACKEND
+ENV NEXT_PUBLIC_API_BACKEND=$NEXT_PUBLIC_API_BACKEND
+
+# Ti?n hï¿½nh build ?ng d?ng Next.js sang production
 RUN npm run build
 
-# === STAGE 2: Container v?n hành g?n nh? (Production runner) ===
+# === STAGE 2: Container v?n hï¿½nh g?n nh? (Production runner) ===
 FROM node:20-alpine AS runner
 WORKDIR /app
 
