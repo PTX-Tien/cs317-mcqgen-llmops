@@ -71,7 +71,7 @@ Các báo cáo hiện có:
 - [Báo cáo Data Pipeline](reports/thuc-hanh-1/data_pipeline_report.md): mô tả xử lý slide/transcript, chunking, embedding, ChromaDB index và metric cần ghi nhận cho pipeline dữ liệu.
 - [Báo cáo Data Validation](reports/thuc-hanh-1/data_validation_report.md): kiểm tra dữ liệu đầu vào và output processed; run hiện tại **PASS có cảnh báo**, 0 error, 2 warning.
 - [Báo cáo Evaluation](reports/thuc-hanh-1/eval_results.md): tổng hợp run sinh đề gần nhất, acceptance rate, phân bố accepted MCQ, RAG strategy và duplicate rate.
-- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): hướng dẫn chạy `pytest`, test API opt-in, kiểm tra `/health`, build Next.js và CI — kèm ảnh `figure/thuc-hanh-1/api.jpg`.
+- [Báo cáo API Demo & Testing](reports/thuc-hanh-1/api_testing_report.md): hướng dẫn chạy `pytest`, test API opt-in, kiểm tra `/health`, build Next.js và CI `figure/thuc-hanh-1/api.jpg`.
 - [Báo cáo Monitoring & Evaluation với Langfuse](reports/thuc-hanh-1/langfuse_monitoring_evaluation_report.md): hướng dẫn tracing session/user/pipeline stage, latency, token usage và accepted/rejected score.
 - [Báo cáo Optimization Strategy trực quan](reports/thuc-hanh-1/optimization_summary.md): chuyển phần Optimization Strategy ra report riêng, dùng dashboard hình ảnh để giải thích RAG, prompt/Langfuse trace, vLLM serving, async pipeline, quality gate, cache và các mục cần nói thận trọng.
 
@@ -269,7 +269,15 @@ bash scripts/start_system.sh
 Mặc định script sẽ đọc `.env`, khởi động Redis, FastAPI, Celery, Next.js, vLLM và Langfuse. Khi chỉ sửa UI/API hoặc chưa cần GPU:
 
 ```bash
-bash scripts/start_system.sh --no-vllm --no-langfuse
+bash scripts/start_system.sh --no-vllm
+```
+
+Nếu server có nhiều GPU, có thể chọn GPU cho vLLM ngay lúc chạy. Script sẽ tự truyền cấu hình này vào Docker và tự suy ra `VLLM_TENSOR_PARALLEL_SIZE` theo số GPU được chọn:
+
+```bash
+CUDA_VISIBLE_DEVICES=2,3,5,6 bash scripts/start_system.sh --with-vllm
+CUDA_VISIBLE_DEVICES=1,2,3,4 bash scripts/start_system.sh --with-vllm
+CUDA_VISIBLE_DEVICES=2,3 bash scripts/start_system.sh --with-vllm
 ```
 
 Sau khi hệ thống lên, các URL chính:
@@ -322,7 +330,7 @@ dvc repro
 **Next.js không kết nối được API**
 
 ```bash
-bash scripts/start_system.sh --no-vllm --no-langfuse
+bash scripts/start_system.sh --no-vllm
 curl http://SERVER_IP:8081/api/health
 ```
 
@@ -330,7 +338,7 @@ curl http://SERVER_IP:8081/api/health
 
 ```bash
 tail -50 logs/redis.log
-REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm --no-langfuse
+REDIS_PORT=6380 bash scripts/start_system.sh --no-vllm
 ```
 
 Nếu log có `Could not create server TCP listening socket`, hãy kiểm tra port đang bị chiếm hoặc bị giới hạn bởi môi trường chạy. Script sẽ dừng sau `REDIS_WAIT_SECONDS` thay vì chờ vô hạn.
