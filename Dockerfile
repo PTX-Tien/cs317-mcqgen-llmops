@@ -1,49 +1,139 @@
-FROM python:3.10-slim
+version: '3.8'
 
-WORKDIR /app
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: mcqgen-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mcqgen-network
 
-RUN apt-get update && apt-get install -y \
-    curl fonts-dejavu git \
-    && rm -rf /var/lib/apt/lists/*
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: mcqgen-chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/indexes:/chroma/chroma
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - mcqgen-network
 
-# Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: mcqgen-langfuse
+    restart: unless-stopped
+    ports:
+      - "${LANGFUSE_PORT:-8083}:3000"
+    environment:
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=mcqgen-langfuse-secret-key-2026
+      - SALT=mcqgen-salt-value
+      - DB_PROVIDER=sqlite
+      - DB_SQLITE_PATH=/home/nextuser/langfuse.db
+    volumes:
+      - langfuse_data:/home/nextuser
+    networks:
+      - mcqgen-network
 
-# Group 1: Base numerics (không conflict)
-RUN pip install --no-cache-dir \
-    "numpy==2.2.6" \
-    "pyarrow==24.0.0" \
-    "scipy==1.15.3" \
-    "scikit-learn==1.7.2" \
-    "tqdm==4.67.3" \
-    "PyYAML==6.0.3"
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: mcqgen-vllm
+    restart: unless-stopped
+    ports:
+      - "${VLLM_PORT:-7681}:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
+    networks:
+      - mcqgen-network
 
-# Group 2: ML / RAG
-RUN pip install --no-cache-dir \
-    "tokenizers==0.21.4" \
-    "transformers==4.51.3" \
-    "sentence-transformers==5.4.1" \
-    "rank-bm25==0.2.2" \
-    "chromadb==1.5.8"
+  api:
+    image: mcqgen-api:v1.0
+    container_name: mcqgen-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8080}:7860"
+    env_file:
+      - .env
+    environment:
+      - CHROMA_SERVER_HOST=chromadb
+      - VLLM_URL=http://vllm:8000/v1
+    depends_on:
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    command: uvicorn api.main:app --host 0.0.0.0 --port 7860
+    volumes:
+      - ./data:/app/data
+      - ./input:/app/input
+      - ./output:/app/output
+    networks:
+      - mcqgen-network
 
-# Group 3: API stack
-RUN pip install --no-cache-dir \
-    "fastapi==0.136.1" \
-    "uvicorn==0.46.0" \
-    "pydantic==2.13.3" \
-    "pydantic-settings==2.14.0" \
-    "openai==2.32.0" \
-    "httpx==0.28.1" \
-    "redis==7.4.0" \
-    "celery==5.6.3" \
-    "pytest==8.4.2"
+  worker:
+    image: mcqgen-api:v1.0
+    container_name: mcqgen-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - CHROMA_SERVER_HOST=chromadb
+      - VLLM_URL=http://vllm:8000/v1
+    depends_on:
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    command: celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
+    volumes:
+      - ./data:/app/data
+      - ./input:/app/input
+      - ./output:/app/output
+    networks:
+      - mcqgen-network
 
-# Group 4: Document export
-RUN pip install --no-cache-dir \
-    "PyMuPDF==1.27.2.3" \
-    "pymupdf4llm==1.27.2.3" \
-    "reportlab==4.4.10"
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: mcqgen-webapp
+    restart: unless-stopped
+    ports:
+      - "${WEBAPP_PORT:-8081}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${API_PORT:-8080}
+    depends_on:
+      - api
+    networks:
+      - mcqgen-network
 
-COPY . .
+networks:
+  mcqgen-network:
+    driver: bridge
 
-EXPOSE 7860
+volumes:
+  redis_data:
+  langfuse_data:
