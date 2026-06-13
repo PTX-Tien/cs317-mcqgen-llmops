@@ -1,139 +1,27 @@
-version: '3.8'
+FROM python:3.10-slim
 
-services:
-  redis:
-    image: redis:7-alpine
-    container_name: mcqgen-redis
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - mcqgen-network
+# Ngăn Python sinh các file .pyc thừa và đảm bảo log hiển thị ngay lập tức
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: mcqgen-chromadb
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data/indexes:/chroma/chroma
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    networks:
-      - mcqgen-network
+# Cài đặt các thư viện hệ thống cần thiết cho PyMuPDF
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libmupdf-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-  langfuse:
-    image: langfuse/langfuse:2
-    container_name: mcqgen-langfuse
-    restart: unless-stopped
-    ports:
-      - "${LANGFUSE_PORT:-8083}:3000"
-    environment:
-      - NEXTAUTH_URL=http://localhost:3000
-      - NEXTAUTH_SECRET=mcqgen-langfuse-secret-key-2026
-      - SALT=mcqgen-salt-value
-      - DB_PROVIDER=sqlite
-      - DB_SQLITE_PATH=/home/nextuser/langfuse.db
-    volumes:
-      - langfuse_data:/home/nextuser
-    networks:
-      - mcqgen-network
+WORKDIR /app
 
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: mcqgen-vllm
-    restart: unless-stopped
-    ports:
-      - "${VLLM_PORT:-7681}:8000"
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
-    networks:
-      - mcqgen-network
+# SỬA TẠI ĐÂY: Copy file requirements_api.txt ở gốc vào container
+COPY requirements_api.txt .
+RUN pip install --no-cache-dir -r requirements_api.txt
 
-  api:
-    image: mcqgen-api:v1.0
-    container_name: mcqgen-api
-    restart: unless-stopped
-    ports:
-      - "${API_PORT:-8080}:7860"
-    env_file:
-      - .env
-    environment:
-      - CHROMA_SERVER_HOST=chromadb
-      - VLLM_URL=http://vllm:8000/v1
-    depends_on:
-      redis:
-        condition: service_healthy
-      chromadb:
-        condition: service_healthy
-    command: uvicorn api.main:app --host 0.0.0.0 --port 7860
-    volumes:
-      - ./data:/app/data
-      - ./input:/app/input
-      - ./output:/app/output
-    networks:
-      - mcqgen-network
+# Copy toàn bộ mã nguồn từ thư mục gốc vào trong container
+COPY . .
 
-  worker:
-    image: mcqgen-api:v1.0
-    container_name: mcqgen-worker
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      - CHROMA_SERVER_HOST=chromadb
-      - VLLM_URL=http://vllm:8000/v1
-    depends_on:
-      redis:
-        condition: service_healthy
-      chromadb:
-        condition: service_healthy
-    command: celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
-    volumes:
-      - ./data:/app/data
-      - ./input:/app/input
-      - ./output:/app/output
-    networks:
-      - mcqgen-network
+# Expose cổng nội bộ của FastAPI
+EXPOSE 7860
 
-  webapp:
-    build:
-      context: ./webapp
-      dockerfile: Dockerfile
-    container_name: mcqgen-webapp
-    restart: unless-stopped
-    ports:
-      - "${WEBAPP_PORT:-8081}:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:${API_PORT:-8080}
-    depends_on:
-      - api
-    networks:
-      - mcqgen-network
-
-networks:
-  mcqgen-network:
-    driver: bridge
-
-volumes:
-  redis_data:
-  langfuse_data:
+# Lệnh khởi chạy mặc định dạng module
+CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7860"]

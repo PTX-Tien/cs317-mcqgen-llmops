@@ -1,4 +1,5 @@
 services:
+  # ── INFRASTRUCTURE: REDIS ──────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: mcqgen-redis
@@ -15,23 +16,25 @@ services:
     networks:
       - mcqgen-network
 
+  # ── INFRASTRUCTURE: CHROMADB (Móc thẳng sang data/indexes của Thanhld) ─────
   chromadb:
     image: chromadb/chroma:latest
     container_name: mcqgen-chromadb
     restart: unless-stopped
     ports:
-      - "${CHROMA_PORT:-8000}:8000"
+      - "${CHROMA_PORT:-8010}:8000"
     volumes:
-      - ./data/indexes:/chroma/chroma
+      - /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops/data/indexes:/chroma/chroma
     networks:
       - mcqgen-network
 
+  # ── OBSERVABILITY: LANGFUSE ────────────────────────────────────────────────
   langfuse:
     image: langfuse/langfuse:2
     container_name: mcqgen-langfuse
     restart: unless-stopped
     ports:
-      - "${LANGFUSE_PORT:-8083}:3000"
+      - "${LANGFUSE_PORT:-8089}:3000"
     environment:
       - NEXTAUTH_URL=http://localhost:3000
       - NEXTAUTH_SECRET=mcqgen-langfuse-secret-key-2026
@@ -43,27 +46,11 @@ services:
     networks:
       - mcqgen-network
 
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: mcqgen-vllm
-    restart: unless-stopped
-    ports:
-      - "${VLLM_PORT:-7681}:8000"
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    command: --model Qwen/Qwen2.5-7B-Instruct --port 8000 --max-model-len 5000 --max-num-seqs 4
-    networks:
-      - mcqgen-network
-
+  # ── BACKEND: API (FASTAPI) ─────────────────────────────────────────────────
   api:
-    image: mcqgen-api:v1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mcqgen-api
     restart: unless-stopped
     ports:
@@ -73,21 +60,25 @@ services:
     environment:
       - CHROMA_SERVER_HOST=chromadb
       - VLLM_URL=http://vllm:8000/v1
+      - PYTHONPATH=/app
     depends_on:
       redis:
         condition: service_healthy
       chromadb:
         condition: service_started
-    command: uvicorn api.main:app --host 0.0.0.0 --port 7860
+    command: python -m uvicorn api.main:app --host 0.0.0.0 --port 7860
     volumes:
-      - ./data:/app/data
+      - /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops/data:/app/data
       - ./input:/app/input
       - ./output:/app/output
     networks:
       - mcqgen-network
 
+  # ── BACKEND: CELERY WORKER ─────────────────────────────────────────────────
   worker:
-    image: mcqgen-api:v1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mcqgen-worker
     restart: unless-stopped
     env_file:
@@ -95,19 +86,21 @@ services:
     environment:
       - CHROMA_SERVER_HOST=chromadb
       - VLLM_URL=http://vllm:8000/v1
+      - PYTHONPATH=/app
     depends_on:
       redis:
         condition: service_healthy
       chromadb:
         condition: service_started
-    command: celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
+    command: python -m celery -A api.tasks worker --loglevel=info --concurrency=1 --queues=mcq.high,celery --hostname=worker-high@%h -Ofair
     volumes:
-      - ./data:/app/data
+      - /mmlab_students/storageStudents/nguyenvd/Thanhld/cs317-mcqgen-llmops/data:/app/data
       - ./input:/app/input
       - ./output:/app/output
     networks:
       - mcqgen-network
 
+  # ── FRONTEND: WEBAPP (NEXT.JS) ─────────────────────────────────────────────
   webapp:
     build:
       context: ./webapp
